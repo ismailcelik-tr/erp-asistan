@@ -12,7 +12,10 @@ import gradio as gr
 import httpx
 from dotenv import load_dotenv
 
-from erp_asistan.agent import Agent, OllamaLLM, Status, ToolCall, Turn
+from erp_asistan.agent import Agent, Status, ToolCall, Turn
+from erp_asistan.fmt import tl
+from erp_asistan.invoice_reader import check, read_invoice
+from erp_asistan.llm import OllamaLLM
 from erp_asistan.odoo.client import OdooClient
 from erp_asistan.tools import ToolRegistry
 
@@ -50,6 +53,8 @@ _EXAMPLES = [
     "Ekim satışlarını özetle; en çok satan ürün ve en iyi müşteri kim?",
 ]
 
+_LINE_HEADERS = ["Açıklama", "Miktar", "Birim Fiyat (KDV hariç)"]
+
 _CSS = """
 #approval {border: 2px solid #d97706; border-radius: 10px; padding: 12px; background: #fffbeb;}
 footer {display: none !important;}
@@ -86,7 +91,25 @@ def _trace_message(entry, elapsed: float) -> dict:
     }
 
 
-def _build(agent: Agent) -> gr.Blocks:
+def _rows_to_lines(rows: list[list]) -> list[dict]:
+    lines = []
+    for desc, qty, price in rows:
+        if not str(desc).strip():
+            continue
+        lines.append({"description": str(desc), "quantity": float(qty), "price_unit": float(price)})
+    return lines
+
+
+def _check_md(inv: dict, lines: list[dict]) -> str:
+    edited = inv | {"lines": lines}
+    warnings = check(edited)
+    head = f"**Ara toplam:** {tl(inv['untaxed'])} · **KDV:** {tl(inv['vat'])} · **Ödenecek:** {tl(inv['total'])}"
+    if not warnings:
+        return f"{head}\n\n✅ Kalemler ve toplamlar birbirini tutuyor."
+    return head + "\n\n" + "\n".join(f"⚠️ {w}" for w in warnings)
+
+
+def _build(agent: Agent, tools: ToolRegistry, llm: OllamaLLM) -> gr.Blocks:
     def render(history: list, turn: Turn, started: float):
         elapsed = time.time() - started
         history += [_trace_message(e, elapsed) for e in turn.trace if e.status is not Status.PENDING]
@@ -128,26 +151,91 @@ def _build(agent: Agent) -> gr.Blocks:
         agent.reset()
         return [], gr.update(visible=False), "", gr.update(interactive=True)
 
+    def on_read(image: str | None):
+        if not image:
+            return gr.update(), gr.update(), gr.update(), gr.update(), "Önce bir fatura görseli seçin.", None
+        started = time.time()
+        try:
+            inv = read_invoice(llm, image)
+        except (httpx.HTTPError, ValueError, KeyError) as e:
+            return gr.update(), gr.update(), gr.update(), gr.update(), f"Okunamadı: {e}", None
+
+        rows = [[l["description"], l["quantity"], l["price_unit"]] for l in inv["lines"]]
+        status = f"🔍 Model faturayı {time.time() - started:.1f} sn'de okudu.\n\n" + _check_md(inv, inv["lines"])
+        return inv["vendor"], inv["invoice_no"], inv["date"], rows, status, inv
+
+    def on_edit(rows: list[list], inv: dict | None):
+        if not inv:
+            return gr.update()
+        try:
+            return _check_md(inv, _rows_to_lines(rows))
+        except (TypeError, ValueError):
+            return "⚠️ Tabloda geçersiz sayı var."
+
+    def on_post(vendor: str, invoice_no: str, date: str, rows: list[list], inv: dict | None):
+        if not inv:
+            return "Önce faturayı okutun."
+        try:
+            lines = _rows_to_lines(rows)
+        except (TypeError, ValueError):
+            return "⛔ Tabloda geçersiz sayı var."
+        if check(inv | {"lines": lines}):
+            return "⛔ Kalemler toplamları tutmuyor. Önce tabloyu düzeltin; tutarsız fatura işlenmez."
+
+        args = {"vendor": vendor, "lines": lines, "date": date, "ref": invoice_no}
+        result = tools.run("create_vendor_bill", args)
+        if "error" in result:
+            return f"❌ {result['error']}"
+
+        # ?db= is required: the server hosts more than one DB (demo + tests).
+        url = f"{os.environ['ODOO_URL']}/odoo/account.move/{result['id']}?db={os.environ['ODOO_DB']}"
+        return (
+            f"✅ Taslak tedarikçi faturası oluşturuldu: **{result['partner']}** · "
+            f"Ödenecek **{tl(result['total'])}** · [Odoo'da aç ↗]({url})"
+        )
+
     with gr.Blocks(title="ERP Asistanı") as demo:
         gr.Markdown("## 🧾 ERP Asistanı\nOdoo 19 + yerel **Gemma 4 12B** · veri bu bilgisayardan çıkmaz")
 
         with gr.Row():
             with gr.Column(scale=3):
-                chat = gr.Chatbot(height=560, show_label=False)
-                with gr.Group(visible=False, elem_id="approval") as approval_box:
-                    approval_md = gr.Markdown()
+                with gr.Tab("💬 Sohbet"):
+                    chat = gr.Chatbot(height=560, show_label=False)
+                    with gr.Group(visible=False, elem_id="approval") as approval_box:
+                        approval_md = gr.Markdown()
+                        with gr.Row():
+                            approve_btn = gr.Button("✅ Onayla", variant="primary")
+                            reject_btn = gr.Button("❌ Reddet", variant="stop")
                     with gr.Row():
-                        approve_btn = gr.Button("✅ Onayla", variant="primary")
-                        reject_btn = gr.Button("❌ Reddet", variant="stop")
-                with gr.Row():
-                    box = gr.Textbox(placeholder="Komutunuzu yazın…", show_label=False, scale=8)
-                    send_btn = gr.Button("Gönder", variant="primary", scale=1)
+                        box = gr.Textbox(placeholder="Komutunuzu yazın…", show_label=False, scale=8)
+                        send_btn = gr.Button("Gönder", variant="primary", scale=1)
+
+                with gr.Tab("📷 Fatura oku"):
+                    inv_state = gr.State(None)
+                    with gr.Row():
+                        image = gr.Image(
+                            type="filepath", sources=["upload", "webcam", "clipboard"],
+                            label="Fatura görseli", height=420, scale=2,
+                        )
+                        with gr.Column(scale=3):
+                            read_btn = gr.Button("🔍 Faturayı oku", variant="primary")
+                            vendor = gr.Textbox(label="Tedarikçi")
+                            with gr.Row():
+                                inv_no = gr.Textbox(label="Fatura no")
+                                inv_date = gr.Textbox(label="Tarih (YYYY-AA-GG)")
+                    lines_df = gr.Dataframe(
+                        headers=_LINE_HEADERS, datatype=["str", "number", "number"],
+                        type="array", interactive=True, column_count=(3, "fixed"),
+                    )
+                    inv_status = gr.Markdown()
+                    post_btn = gr.Button("📥 Odoo'ya tedarikçi faturası olarak işle", variant="primary")
+                    post_result = gr.Markdown()
 
             with gr.Column(scale=1):
                 gr.Markdown("**Örnek komutlar**")
                 example_btns = [gr.Button(e, size="sm") for e in _EXAMPLES]
                 reset_btn = gr.Button("🗑️ Yeni sohbet", size="sm")
-                gr.Markdown(f"[Odoo'yu aç ↗]({os.environ['ODOO_URL']})")
+                gr.Markdown(f"[Odoo'yu aç ↗]({os.environ['ODOO_URL']}/odoo?db={os.environ['ODOO_DB']})")
 
         outputs = [chat, approval_box, approval_md, send_btn]
         box.submit(on_send, [box, chat], [*outputs, box])
@@ -155,6 +243,9 @@ def _build(agent: Agent) -> gr.Blocks:
         approve_btn.click(on_approve, chat, outputs)
         reject_btn.click(on_reject, chat, outputs)
         reset_btn.click(on_reset, None, outputs)
+        read_btn.click(on_read, image, [vendor, inv_no, inv_date, lines_df, inv_status, inv_state])
+        lines_df.input(on_edit, [lines_df, inv_state], inv_status)
+        post_btn.click(on_post, [vendor, inv_no, inv_date, lines_df, inv_state], post_result)
         for b in example_btns:
             b.click(lambda e=b.value: e, None, box)
 
@@ -163,9 +254,11 @@ def _build(agent: Agent) -> gr.Blocks:
 
 def main() -> None:
     load_dotenv(".env")
-    agent = Agent(OllamaLLM(), ToolRegistry(OdooClient.from_env()))
+    llm = OllamaLLM()
+    tools = ToolRegistry(OdooClient.from_env())
+    agent = Agent(llm, tools)
     theme = gr.themes.Soft(font=["system-ui", "sans-serif"], font_mono=["ui-monospace", "monospace"])
-    _build(agent).launch(server_port=_PORT, theme=theme, css=_CSS)
+    _build(agent, tools, llm).launch(server_port=_PORT, theme=theme, css=_CSS)
 
 
 if __name__ == "__main__":

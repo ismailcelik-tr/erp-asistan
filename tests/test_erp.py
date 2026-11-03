@@ -67,6 +67,7 @@ def test_vendor_bill_creates_unknown_vendor(odoo, uniq):
     )
 
     assert bill["untaxed"] == 1500
+    assert bill["total"] == 1800
     assert bill["state"] == "draft"
 
 

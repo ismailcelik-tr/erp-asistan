@@ -21,6 +21,8 @@ packages = ["src/erp_asistan"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not llm'"
+markers = ["llm: needs a running Ollama model (slow); run with -m llm"]
 
 [project.scripts]
 erp-asistan = "erp_asistan.ui:main"

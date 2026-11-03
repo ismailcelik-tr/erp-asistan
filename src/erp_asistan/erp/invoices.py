@@ -15,6 +15,7 @@ _UNPAID = ["not_paid", "partial"]
 
 def _view(row: dict) -> dict:
     return {
+        "id": row["id"],
         "ref": row["name"],
         "partner": row["partner_id"][1] if row["partner_id"] else None,
         "date": row["invoice_date"],
@@ -70,8 +71,16 @@ def create_vendor_bill(odoo: OdooClient, vendor: str, lines: list[dict], date: s
         raise ErpError(f"Geçersiz tarih: {date} (YYYY-AA-GG bekleniyor).") from e
 
     partner_id = _vendor_id(odoo, vendor)
+    # Product-less lines get no default tax; apply the company's purchase VAT explicitly.
+    [company] = odoo.search_read("res.company", [], ["account_purchase_tax_id"], limit=1)
+    taxes = [company["account_purchase_tax_id"][0]] if company["account_purchase_tax_id"] else []
     move_lines = [
-        [0, 0, {"name": l["description"], "quantity": l["quantity"], "price_unit": l["price_unit"]}]
+        [0, 0, {
+            "name": l["description"],
+            "quantity": l["quantity"],
+            "price_unit": l["price_unit"],
+            "tax_ids": [[6, 0, taxes]],
+        }]
         for l in lines
     ]
     vals = {"move_type": "in_invoice", "partner_id": partner_id, "invoice_date": date, "invoice_line_ids": move_lines}

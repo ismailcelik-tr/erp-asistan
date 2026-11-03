@@ -3,22 +3,14 @@
 import datetime
 import enum
 import json
-import os
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-import httpx
-
 from erp_asistan.tools import Kind
 
-__all__ = ["Agent", "OllamaLLM", "Status", "ToolCall", "TraceEntry", "Turn"]
+__all__ = ["Agent", "Status", "ToolCall", "TraceEntry", "Turn"]
 
 _MAX_STEPS = 10
-_KEEP_ALIVE = "60m"
-_OLLAMA_URL = "http://localhost:11434/api/chat"
-# Default would be the model's full 262k window: minutes to load, GBs of KV cache.
-_NUM_CTX = 16384
-_LLM_TIMEOUT_SECONDS = 300
 
 _SYSTEM_PROMPT = """Sen "Demo Ticaret A.Ş." şirketinin Odoo ERP asistanısın. Bugün {today}.
 Kurallar:
@@ -67,35 +59,6 @@ class Tools(Protocol):
     def schemas(self) -> list[dict]: ...
     def kind(self, name: str) -> Kind: ...
     def run(self, name: str, args: dict) -> Any: ...
-
-
-class OllamaLLM:
-    """Raw HTTP: the `ollama` Python client drops tool_calls from this server version."""
-
-    def __init__(self, model: str | None = None, think: bool = False) -> None:
-        self._model = model or os.environ.get("OLLAMA_MODEL", "gemma4:12b")
-        self._think = think
-        self._http = httpx.Client(timeout=_LLM_TIMEOUT_SECONDS)
-
-    def chat(self, messages: list[dict], tools: list[dict]) -> dict:
-        body = {
-            "model": self._model,
-            "messages": messages,
-            "tools": tools,
-            "stream": False,
-            "think": self._think,
-            "keep_alive": _KEEP_ALIVE,
-            "options": {"temperature": 0, "num_ctx": _NUM_CTX},
-        }
-        resp = self._http.post(_OLLAMA_URL, json=body)
-        resp.raise_for_status()
-
-        msg = resp.json()["message"]
-        calls = msg.get("tool_calls") or []
-        return {
-            "content": msg.get("content") or "",
-            "tool_calls": [{"name": c["function"]["name"], "arguments": c["function"]["arguments"]} for c in calls],
-        }
 
 
 class Agent:
