@@ -93,3 +93,15 @@ def test_find_partner_tolerates_turkish_suffixes(odoo, customer, uniq):
 
 def test_resolve_product_tolerates_suffixes(odoo, product, uniq):
     assert products.resolve_product(odoo, f"laptopu {uniq}")["name"] == product["name"]
+
+
+def test_find_orders_by_partner_and_state(odoo, customer, product):
+    quote = sales.create_quotation(
+        odoo, customer["name"], [{"product": product["name"], "quantity": 1}]
+    )
+
+    drafts = sales.find_orders(odoo, partner=customer["name"], state="quotation")
+    confirmed = sales.find_orders(odoo, partner=customer["name"], state="order")
+
+    assert [o["ref"] for o in drafts] == [quote["ref"]]
+    assert confirmed == []

@@ -32,6 +32,7 @@ _LABELS = {
     "find_products": "Ürün ara",
     "get_low_stock": "Kritik stok",
     "list_open_invoices": "Açık faturalar",
+    "find_orders": "Teklif/sipariş ara",
     "sales_summary": "Satış özeti",
     "create_partner": "Yeni cari",
     "update_product_price": "Fiyat güncelle",

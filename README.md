@@ -9,6 +9,10 @@ Gradio UI ─ agent (tool calling, human approval for writes) ─ domain tools �
 - The model gets a small set of domain tools (`create_quotation`, `sales_summary`, …), not raw ORM access.
 - Every write waits for an explicit approve/reject in the UI.
 - Totals are computed by tools, never by the model.
+- Vendor bills can be read from a photo; line sums are cross-checked before posting.
+- Turkish voice commands via local Whisper.
+
+Reliability: `uv run python scripts/eval.py 5` → [docs/eval-2026-11-03.md](docs/eval-2026-11-03.md) (80/80 on 16 scenarios, temperature 0).
 
 ## Run
 
