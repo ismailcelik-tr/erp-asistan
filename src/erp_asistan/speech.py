@@ -5,7 +5,7 @@ from pathlib import Path
 
 import mlx_whisper
 
-__all__ = ["transcribe", "warm_up"]
+__all__ = ["is_ready", "transcribe", "warm_up"]
 
 # Gemma 4's native audio input hung on this Ollama version; Whisper is the fallback.
 _MODEL = "mlx-community/whisper-large-v3-turbo"
@@ -13,6 +13,7 @@ _LANGUAGE = "tr"
 
 # MLX streams are thread-local: every call must run on the thread that loaded the model.
 _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper")
+_warm = None
 
 
 def _run(audio: Path) -> str:
@@ -25,4 +26,9 @@ def transcribe(audio: Path) -> str:
 
 def warm_up(sample: Path) -> None:
     """First call loads weights (~5 s); queue it at startup, not during the demo."""
-    _worker.submit(_run, sample)
+    global _warm
+    _warm = _worker.submit(_run, sample)
+
+
+def is_ready() -> bool:
+    return _warm is not None and _warm.done() and _warm.exception() is None

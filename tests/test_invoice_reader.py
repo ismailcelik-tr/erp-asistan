@@ -48,3 +48,27 @@ def test_reads_every_row_of_three_line_invoice():
 
     assert len(inv["lines"]) == 3
     assert check(inv) == []
+
+
+class _Fixed:
+    def __init__(self, inv):
+        self._inv = inv
+
+    def extract(self, prompt, image, fmt):
+        return dict(self._inv)
+
+
+@pytest.mark.parametrize("written", ["27.10.2026", "27/10/2026", "27-10-2026", "2026-10-27"])
+def test_date_is_parsed_by_code_not_model(written):
+    inv = read_invoice(_Fixed(_inv(date=written)), SAMPLE)
+
+    assert inv["date"] == "2026-10-27"
+
+
+def test_unparseable_date_is_kept_for_human_fix():
+    assert read_invoice(_Fixed(_inv(date="Ekim sonu")), SAMPLE)["date"] == "Ekim sonu"
+
+
+def test_implausible_date_is_flagged():
+    assert any("Tarih" in w for w in check(_inv(date="2020-10-17")))
+    assert any("Tarih" in w for w in check(_inv(date="Ekim sonu")))

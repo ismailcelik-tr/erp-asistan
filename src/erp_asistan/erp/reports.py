@@ -4,7 +4,7 @@ from collections import Counter
 from erp_asistan.erp.errors import ErpError
 from erp_asistan.odoo.client import OdooClient
 
-__all__ = ["sales_summary"]
+__all__ = ["compare_sales", "sales_summary"]
 
 _CONFIRMED = ["sale", "done"]
 _TOP_N = 5
@@ -47,4 +47,23 @@ def sales_summary(odoo: OdooClient, date_from: str, date_to: str) -> dict:
         "total": round(sum(o["amount_total"] for o in orders), 2),
         "top_customers": [{"name": n, "untaxed": round(v, 2)} for n, v in by_customer.most_common(_TOP_N)],
         "top_products": [{"name": n, "untaxed": round(v, 2)} for n, v in by_product.most_common(_TOP_N)],
+    }
+
+
+def _pct(old: float, new: float) -> float | None:
+    return round((new - old) / old * 100, 1) if old else None
+
+
+def compare_sales(odoo: OdooClient, first_from: str, first_to: str, second_from: str, second_to: str) -> dict:
+    """Two periods side by side; deltas are computed here, not by the LLM."""
+    first = sales_summary(odoo, first_from, first_to)
+    second = sales_summary(odoo, second_from, second_to)
+    return {
+        "first": first,
+        "second": second,
+        "change": {
+            "total": round(second["total"] - first["total"], 2),
+            "total_pct": _pct(first["total"], second["total"]),
+            "order_count": second["order_count"] - first["order_count"],
+        },
     }

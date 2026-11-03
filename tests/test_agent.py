@@ -93,10 +93,33 @@ def test_false_success_claim_is_challenged():
     assert Status.GUARDED in [e.status for e in turn.trace]
 
 
-def test_claim_is_challenged_only_once():
-    agent = Agent(FakeLLM([_text("Oluşturuldu."), _text("Oluşturuldu.")]), FakeTools())
+def test_claim_is_challenged_at_most_twice():
+    llm = FakeLLM([_text("Oluşturuldu."), _text("Oluşturuldu."), _text("Oluşturuldu.")])
+    agent = Agent(llm, FakeTools())
 
     assert agent.send("teklif oluştur").reply == "Oluşturuldu."
+    assert llm.calls == 3
+
+
+def test_second_challenge_gets_the_call():
+    llm = FakeLLM([_text("Teklif oluşturuldu."), _text("Şimdi oluşturuyorum."), _call("create_quotation", partner="X")])
+    agent = Agent(llm, FakeTools())
+
+    assert agent.send("X için teklif oluştur").pending.name == "create_quotation"
+
+
+class SpyLLM(FakeLLM):
+    def chat(self, messages, tools):
+        self.last = messages[-1]["content"]
+        return super().chat(messages, tools)
+
+
+def test_challenge_names_the_likely_tool():
+    llm = SpyLLM([_text("Teklif başarıyla oluşturuldu."), _call("create_quotation", partner="X")])
+
+    Agent(llm, FakeTools()).send("X için teklif oluştur")
+
+    assert "create_quotation" in llm.last
 
 
 def test_claim_after_real_write_is_accepted():

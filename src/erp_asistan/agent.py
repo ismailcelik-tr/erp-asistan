@@ -19,16 +19,27 @@ _SUCCESS_CLAIM = re.compile(
     r"(oluşturul|güncellen|kesil|onaylan|eklen|kaydedil|işlen)(dı|di|du|dü|mış|miş|muş|müş)",
     re.IGNORECASE,
 )
+_MAX_CHALLENGES = 2
+# First match wins: "teklif oluşturuldu ve onaylandı" → create_quotation.
+_LIKELY_TOOL = [
+    (re.compile(r"teklif", re.IGNORECASE), "create_quotation"),
+    (re.compile(r"fatura", re.IGNORECASE), "create_invoice"),
+    (re.compile(r"onaylan", re.IGNORECASE), "confirm_order"),
+    (re.compile(r"fiyat", re.IGNORECASE), "update_product_price"),
+    (re.compile(r"müşteri|cari", re.IGNORECASE), "create_partner"),
+]
 _CLAIM_CHALLENGE = (
     "[Sistem denetimi] Bu istekte henüz hiçbir yazma aracı çalışmadı; ERP'de değişiklik yok. "
-    "İşlem gerekiyorsa ilgili aracı şimdi çağır. Gerekmiyorsa işlemin yapılmadığını açıkça söyle."
+    "İşlem gerekiyorsa aracı ŞİMDİ çağır{hint}; \"yapacağım\" deyip durma. "
+    "Gerekmiyorsa işlemin yapılmadığını açıkça söyle."
 )
 
-_SYSTEM_PROMPT = """Sen "Demo Ticaret A.Ş." şirketinin Odoo ERP asistanısın. Bugün {today}.
+_SYSTEM_PROMPT = """Sen "{company}" şirketinin Odoo ERP asistanısın. Bugün {today}.
 Kurallar:
 - Veriyi asla uydurma; her bilgi için araç çağır.
 - Kullanıcı kayıt oluşturmak/değiştirmek isterse ilgili yazma aracını MUTLAKA çağır. Onayı arayüz ister; sen ayrıca onay sorma.
 - Bir işlemi ancak yazma aracı sonuç döndürdükten sonra "yapıldı" diye bildir; referans numarasını araç sonucundan al.
+- Arama araçlarından sonra yazma aracını aynı yanıtta çağır; "oluşturuyorum" deyip durma.
 - Kendin toplama/hesap yapma; araçların döndürdüğü toplamları (total, total_residual, untaxed) aynen kullan.
 - Kullanıcının verdiği firma/ürün adlarını olduğu gibi araçlara ilet.
 - Bir araç birden fazla eşleşme veya hata döndürürse kullanıcıya sor.
@@ -76,19 +87,26 @@ class Tools(Protocol):
     def run(self, name: str, args: dict) -> Any: ...
 
 
+def _challenge(claim: str) -> str:
+    tool = next((t for pattern, t in _LIKELY_TOOL if pattern.search(claim)), None)
+    hint = f" (muhtemelen {tool})" if tool else ""
+    return _CLAIM_CHALLENGE.format(hint=hint)
+
+
 class Agent:
-    def __init__(self, llm: LLM, tools: Tools) -> None:
+    def __init__(self, llm: LLM, tools: Tools, company: str = "şirket") -> None:
         self._llm = llm
+        self._company = company
         self._tools = tools
         self._queue: list[ToolCall] = []
         self.reset()
 
     def reset(self) -> None:
         today = datetime.date.today().isoformat()
-        self._messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT.format(today=today)}]
+        self._messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT.format(company=self._company, today=today)}]
         self._queue = []
         self._wrote = False
-        self._challenged = False
+        self._challenges = 0
 
     def send(self, text: str, images: list[str] | None = None) -> Turn:
         msg: dict = {"role": "user", "content": text}
@@ -96,7 +114,7 @@ class Agent:
             msg["images"] = images
         self._messages.append(msg)
         self._wrote = False
-        self._challenged = False
+        self._challenges = 0
 
         return self._loop([])
 
@@ -131,9 +149,9 @@ class Agent:
                 "tool_calls": [{"function": {"name": c.name, "arguments": c.arguments}} for c in calls],
             })
 
-            if not calls and self._is_false_claim(resp["content"]):
-                self._challenged = True
-                self._messages.append({"role": "user", "content": _CLAIM_CHALLENGE})
+            if not calls and self._needs_challenge(resp["content"]):
+                self._challenges += 1
+                self._messages.append({"role": "user", "content": _challenge(resp["content"])})
                 trace.append(TraceEntry("claim_guard", {"iddia": resp["content"]}, Status.GUARDED, "Model uyarıldı."))
                 continue
 
@@ -156,8 +174,11 @@ class Agent:
 
         return None
 
-    def _is_false_claim(self, content: str) -> bool:
-        return not self._wrote and not self._challenged and bool(_SUCCESS_CLAIM.search(content))
+    def _needs_challenge(self, content: str) -> bool:
+        """A success claim without any write; after one challenge, any write-less stop."""
+        if self._wrote or self._challenges >= _MAX_CHALLENGES:
+            return False
+        return self._challenges > 0 or bool(_SUCCESS_CLAIM.search(content))
 
     def _execute(self, call: ToolCall) -> TraceEntry:
         if self._tools.kind(call.name) is Kind.WRITE:

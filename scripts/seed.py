@@ -1,83 +1,95 @@
-"""Seeds the demo DB with fictional Turkish data. Run once: uv run python scripts/seed.py"""
+"""Seeds the demo DB from a dataset folder (dataset.json + optional logo).
 
+Usage: uv run python scripts/seed.py [dataset_dir]   (default: $SEED_DATASET or data/demo)
+"""
+
+import base64
 import datetime
+import json
+import os
 import random
+import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 from erp_asistan.erp import invoices, partners, products, sales
 from erp_asistan.odoo.client import OdooClient
 
-CUSTOMERS = [
-    ("Anadolu Gıda Ltd. Şti.", "Ankara"),
-    ("Ege Yapı Malzemeleri A.Ş.", "İzmir"),
-    ("Karadeniz Lojistik", "Trabzon"),
-    ("Marmara Ofis Çözümleri", "İstanbul"),
-    ("Akdeniz Otelcilik A.Ş.", "Antalya"),
-    ("Yılmaz Mimarlık", "Bursa"),
-    ("Kaya Tekstil San. Tic.", "Denizli"),
-    ("Doğu Eğitim Kurumları", "Erzurum"),
-]
-
-# name, price, cost, stock
-PRODUCTS = [
-    ("Dizüstü Bilgisayar Pro 14", 42000, 33000, 18),
-    ("Dizüstü Bilgisayar Air 13", 31000, 24000, 3),
-    ("27 inç Monitör", 8900, 6500, 25),
-    ("Kablosuz Klavye Mouse Seti", 1450, 900, 60),
-    ("Lazer Yazıcı", 7600, 5400, 2),
-    ("Toner Kartuşu", 1850, 1100, 7),
-    ("Ofis Sandalyesi Ergonomik", 5200, 3600, 12),
-    ("Çalışma Masası 160 cm", 6800, 4700, 4),
-    ("A4 Fotokopi Kağıdı (5 top)", 650, 420, 140),
-    ("Projeksiyon Cihazı", 18500, 14000, 1),
-    ("Ağ Switch 24 Port", 9400, 7000, 6),
-    ("Harici SSD 1 TB", 3200, 2300, 35),
-]
-
-START = datetime.date(2026, 10, 1)
-END = datetime.date(2026, 11, 2)
-ORDER_COUNT = 26
-INVOICE_RATIO = 0.6
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DATASET = "data/demo"
+MAX_LINES_PER_ORDER = 3
+COMPANY_FIELDS = ["name", "street", "city", "zip", "phone", "email", "website"]
+# (unit price TL above, max quantity): nobody orders 25 fire panels at once.
+QTY_CAPS = [(50_000, 3), (10_000, 12), (2_000, 60)]
 
 
-def main() -> None:
-    load_dotenv()
-    odoo = OdooClient.from_env()
-    random.seed(42)
+def _qty(rng: random.Random, price: float, lo: int, hi: int) -> int:
+    cap = next((q for limit, q in QTY_CAPS if price > limit), hi)
+    return rng.randint(min(lo, cap), min(hi, cap))
 
-    if partners.find_partner(odoo, CUSTOMERS[0][0]):
-        print("Already seeded.")
-        return
 
-    for name, city in CUSTOMERS:
-        partners.create_partner(odoo, name, city=city)
+def _company(odoo: OdooClient, info: dict, folder: Path) -> None:
+    vals = {k: info[k] for k in COMPANY_FIELDS if info.get(k)}
+    if info.get("logo"):
+        vals["logo"] = base64.b64encode((folder / info["logo"]).read_bytes()).decode()
 
-    for name, price, cost, stock in PRODUCTS:
-        products.create_product(odoo, name, price=price, cost=cost)
-        products.set_stock(odoo, name, stock)
+    [company] = odoo.search_read("res.company", [], ["id"], limit=1)
+    odoo.write("res.company", [company["id"]], vals)
 
-    span = (END - START).days
-    for _ in range(ORDER_COUNT):
-        customer = random.choice(CUSTOMERS)[0]
-        picks = random.sample(PRODUCTS, k=random.randint(1, 3))
-        lines = [{"product": p[0], "quantity": random.randint(1, 4)} for p in picks]
 
-        quote = sales.create_quotation(odoo, customer, lines)
+def _orders(odoo: OdooClient, ds: dict) -> None:
+    cfg = ds["orders"]
+    rng = random.Random(cfg["random_seed"])
+    start = datetime.date.fromisoformat(cfg["start"])
+    span = (datetime.date.fromisoformat(cfg["end"]) - start).days
+
+    for _ in range(cfg["count"]):
+        customer = rng.choice(ds["customers"])
+        pool = [p for p in ds["products"] if not customer.get("buys") or p["category"] in customer["buys"]]
+        picks = rng.sample(pool, k=min(len(pool), rng.randint(1, MAX_LINES_PER_ORDER)))
+        lo, hi = customer["qty"]
+        lines = [{"product": p.get("code") or p["name"], "quantity": _qty(rng, p["price"], lo, hi)} for p in picks]
+
+        quote = sales.create_quotation(odoo, customer["name"], lines)
         sales.confirm_order(odoo, quote["ref"])
 
-        when = START + datetime.timedelta(days=random.randint(0, span))
+        when = start + datetime.timedelta(days=rng.randint(0, span))
         order = sales.resolve_order(odoo, quote["ref"])
         odoo.write("sale.order", [order["id"]], {"date_order": f"{when.isoformat()} 10:00:00"})
 
-        if random.random() < INVOICE_RATIO:
+        if rng.random() < cfg["invoice_ratio"]:
             invoices.create_invoice(odoo, quote["ref"])
 
-    # A few open quotations for the confirm/invoice demo.
-    sales.create_quotation(odoo, "Akdeniz Otelcilik A.Ş.", [{"product": "27 inç Monitör", "quantity": 6}])
-    sales.create_quotation(odoo, "Doğu Eğitim Kurumları", [{"product": "Projeksiyon Cihazı", "quantity": 1}])
 
-    print("Seeded.")
+def main() -> None:
+    load_dotenv(ROOT / ".env")
+    folder = ROOT / (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("SEED_DATASET", DEFAULT_DATASET))
+    ds = json.loads((folder / "dataset.json").read_text())
+    odoo = OdooClient.from_env()
+
+    if partners.find_partner(odoo, ds["customers"][0]["name"]):
+        print("Already seeded.")
+        return
+
+    _company(odoo, ds["company"], folder)
+
+    for c in ds["customers"]:
+        partners.create_partner(odoo, c["name"], city=c.get("city"))
+    for v in ds["vendors"]:
+        partners.create_partner(odoo, v["name"], city=v.get("city"))
+
+    for p in ds["products"]:
+        products.create_product(odoo, p["name"], price=p["price"], cost=p.get("cost", 0),
+                                code=p.get("code"), category=p.get("category"))
+        products.set_stock(odoo, p.get("code") or p["name"], p["stock"])
+
+    _orders(odoo, ds)
+
+    for q in ds["open_quotations"]:
+        sales.create_quotation(odoo, q["partner"], q["lines"])
+
+    print(f"Seeded {folder.name}: {len(ds['products'])} products, {ds['orders']['count']} orders.")
 
 
 if __name__ == "__main__":

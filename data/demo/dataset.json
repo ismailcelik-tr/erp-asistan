@@ -1,0 +1,186 @@
+{
+  "company": {
+    "name": "Demo Ticaret A.Ş.",
+    "city": "İstanbul"
+  },
+  "customers": [
+    {
+      "name": "Anadolu Gıda Ltd. Şti.",
+      "city": "Ankara",
+      "qty": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "Ege Yapı Malzemeleri A.Ş.",
+      "city": "İzmir",
+      "qty": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "Karadeniz Lojistik",
+      "city": "Trabzon",
+      "qty": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "Marmara Ofis Çözümleri",
+      "city": "İstanbul",
+      "qty": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "Akdeniz Otelcilik A.Ş.",
+      "city": "Antalya",
+      "qty": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "Yılmaz Mimarlık",
+      "city": "Bursa",
+      "qty": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "Kaya Tekstil San. Tic.",
+      "city": "Denizli",
+      "qty": [
+        1,
+        4
+      ]
+    },
+    {
+      "name": "Doğu Eğitim Kurumları",
+      "city": "Erzurum",
+      "qty": [
+        1,
+        4
+      ]
+    }
+  ],
+  "vendors": [],
+  "products": [
+    {
+      "name": "Dizüstü Bilgisayar Pro 14",
+      "price": 42000,
+      "cost": 33000,
+      "stock": 18,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Dizüstü Bilgisayar Air 13",
+      "price": 31000,
+      "cost": 24000,
+      "stock": 3,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "27 inç Monitör",
+      "price": 8900,
+      "cost": 6500,
+      "stock": 25,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Kablosuz Klavye Mouse Seti",
+      "price": 1450,
+      "cost": 900,
+      "stock": 60,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Lazer Yazıcı",
+      "price": 7600,
+      "cost": 5400,
+      "stock": 2,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Toner Kartuşu",
+      "price": 1850,
+      "cost": 1100,
+      "stock": 7,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Ofis Sandalyesi Ergonomik",
+      "price": 5200,
+      "cost": 3600,
+      "stock": 12,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Çalışma Masası 160 cm",
+      "price": 6800,
+      "cost": 4700,
+      "stock": 4,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "A4 Fotokopi Kağıdı (5 top)",
+      "price": 650,
+      "cost": 420,
+      "stock": 140,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Projeksiyon Cihazı",
+      "price": 18500,
+      "cost": 14000,
+      "stock": 1,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Ağ Switch 24 Port",
+      "price": 9400,
+      "cost": 7000,
+      "stock": 6,
+      "category": "Ofis ve Bilişim"
+    },
+    {
+      "name": "Harici SSD 1 TB",
+      "price": 3200,
+      "cost": 2300,
+      "stock": 35,
+      "category": "Ofis ve Bilişim"
+    }
+  ],
+  "orders": {
+    "start": "2026-10-01",
+    "end": "2026-11-02",
+    "count": 26,
+    "invoice_ratio": 0.6,
+    "random_seed": 42
+  },
+  "open_quotations": [
+    {
+      "partner": "Akdeniz Otelcilik A.Ş.",
+      "lines": [
+        {
+          "product": "27 inç Monitör",
+          "quantity": 6
+        }
+      ]
+    },
+    {
+      "partner": "Doğu Eğitim Kurumları",
+      "lines": [
+        {
+          "product": "Projeksiyon Cihazı",
+          "quantity": 1
+        }
+      ]
+    }
+  ]
+}

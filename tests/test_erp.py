@@ -105,3 +105,26 @@ def test_find_orders_by_partner_and_state(odoo, customer, product):
 
     assert [o["ref"] for o in drafts] == [quote["ref"]]
     assert confirmed == []
+
+
+def test_product_code_and_category(odoo, uniq):
+    code = f"M.U.TST.{uniq}"
+    products.create_product(odoo, name=f"Test Şube {uniq}", price=100, code=code, category=f"Kategori {uniq}")
+
+    [row] = products.find_products(odoo, code)
+    assert row["code"] == code
+    assert row["category"] == f"Kategori {uniq}"
+    assert products.resolve_product(odoo, code.lower())["name"] == f"Test Şube {uniq}"
+
+
+def test_compare_sales_computes_deltas(odoo, customer, product):
+    today = datetime.date.today().isoformat()
+    quote = sales.create_quotation(odoo, customer["name"], [{"product": product["name"], "quantity": 1}])
+    sales.confirm_order(odoo, quote["ref"])
+
+    result = reports.compare_sales(odoo, "2001-01-01", "2001-01-31", today, today)
+
+    assert result["first"]["total"] == 0
+    assert result["change"]["total"] == result["second"]["total"]
+    assert result["change"]["total_pct"] is None
+    assert result["change"]["order_count"] == result["second"]["order_count"]

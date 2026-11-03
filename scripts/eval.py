@@ -1,6 +1,6 @@
 """Runs scenarios.yaml N times against the demo DB and writes a reliability report.
 
-Usage: uv run python scripts/eval.py [runs=3]
+Usage: uv run python scripts/eval.py [runs=3] [scenarios.yaml]
 Writes records to the demo DB (approved flows): reset it afterwards.
 """
 
@@ -15,6 +15,7 @@ import yaml
 from dotenv import load_dotenv
 
 from erp_asistan.agent import Agent, Status
+from erp_asistan.erp.company import company_info
 from erp_asistan.llm import OllamaLLM
 from erp_asistan.odoo.client import OdooClient
 from erp_asistan.tools import Kind, ToolRegistry
@@ -64,8 +65,8 @@ def _check(sc: dict, calls: list[tuple[str, dict]], tools: ToolRegistry, reply: 
     return None
 
 
-def _run(sc: dict, tools: ToolRegistry) -> tuple[str | None, float]:
-    agent = Agent(OllamaLLM(), tools)
+def _run(sc: dict, tools: ToolRegistry, company: str) -> tuple[str | None, float]:
+    agent = Agent(OllamaLLM(), tools, company=company)
     started = time.time()
     turn = agent.send(sc["prompt"])
     calls = []
@@ -84,12 +85,15 @@ def _run(sc: dict, tools: ToolRegistry) -> tuple[str | None, float]:
 def main() -> None:
     load_dotenv(ROOT / ".env")
     runs = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_RUNS
-    scenarios = yaml.safe_load((ROOT / "scenarios.yaml").read_text())
-    tools = ToolRegistry(OdooClient.from_env())
+    path = ROOT / (sys.argv[2] if len(sys.argv) > 2 else "scenarios.yaml")
+    scenarios = yaml.safe_load(path.read_text())
+    odoo = OdooClient.from_env()
+    tools = ToolRegistry(odoo)
+    company = company_info(odoo)["name"]
 
     rows, by_cat = [], defaultdict(lambda: [0, 0])
     for sc in scenarios:
-        results = [_run(sc, tools) for _ in range(runs)]
+        results = [_run(sc, tools, company) for _ in range(runs)]
         passed = sum(1 for fail, _ in results if fail is None)
         fails = sorted({fail for fail, _ in results if fail})
         latency = statistics.mean(t for _, t in results)
@@ -101,7 +105,7 @@ def main() -> None:
     total = sum(p for p, _ in by_cat.values()), sum(n for _, n in by_cat.values())
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     report = "\n".join([
-        f"# Eval — {stamp} · {runs} koşu/senaryo · {OllamaLLM()._model}", "",
+        f"# Eval — {stamp} · {company} · {path.name} · {runs} koşu/senaryo", "",
         f"**Toplam: {total[0]}/{total[1]} ({100 * total[0] / total[1]:.0f}%)**", "",
         "| Kategori | Başarı |", "|---|---|",
         *(f"| {c} | {p}/{n} ({100 * p / n:.0f}%) |" for c, (p, n) in by_cat.items()), "",

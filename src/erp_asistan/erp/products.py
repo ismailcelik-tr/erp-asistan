@@ -10,24 +10,38 @@ __all__ = [
     "update_product_price",
 ]
 
-_FIELDS = ["id", "name", "list_price", "qty_available"]
+_FIELDS = ["id", "name", "default_code", "categ_id", "list_price", "qty_available"]
 _SEARCH_LIMIT = 20
 
 
 def _view(row: dict) -> dict:
-    return {"id": row["id"], "name": row["name"], "price": row["list_price"], "stock": row["qty_available"]}
+    return {
+        "id": row["id"],
+        "code": row["default_code"] or None,
+        "name": row["name"],
+        "category": row["categ_id"][1].split(" / ")[-1] if row["categ_id"] else None,
+        "price": row["list_price"],
+        "stock": row["qty_available"],
+    }
 
 
 def find_products(odoo: OdooClient, name: str) -> list[dict]:
-    rows = search(odoo, "product.product", name, _FIELDS, _SEARCH_LIMIT)
+    rows = search(odoo, "product.product", name, _FIELDS, _SEARCH_LIMIT, code_field="default_code")
     return [_view(r) for r in rows]
 
 
 def resolve_product(odoo: OdooClient, name: str) -> dict:
-    return resolve(odoo, "product.product", name, "ürün")
+    return resolve(odoo, "product.product", name, "ürün", code_field="default_code")
 
 
-def create_product(odoo: OdooClient, name: str, price: float, cost: float = 0) -> dict:
+def create_product(
+    odoo: OdooClient,
+    name: str,
+    price: float,
+    cost: float = 0,
+    code: str | None = None,
+    category: str | None = None,
+) -> dict:
     vals = {
         "name": name,
         "list_price": price,
@@ -36,8 +50,22 @@ def create_product(odoo: OdooClient, name: str, price: float, cost: float = 0) -
         "is_storable": True,
         "invoice_policy": "order",
     }
+    if code:
+        vals["default_code"] = code
+    if category:
+        vals["categ_id"] = _category_id(odoo, category)
+
     odoo.create("product.template", [vals])
     return resolve_product(odoo, name)
+
+
+def _category_id(odoo: OdooClient, name: str) -> int:
+    rows = odoo.search_read("product.category", [("name", "=", name)], ["id"], limit=1)
+    if rows:
+        return rows[0]["id"]
+
+    [cid] = odoo.create("product.category", [{"name": name}])
+    return cid
 
 
 def set_stock(odoo: OdooClient, product: str, quantity: float) -> None:

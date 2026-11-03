@@ -46,7 +46,7 @@
 - id: compare-months
   category: analiz
   prompt: Ekim ve Kasım satışlarını karşılaştır.
-  expect: [sales_summary, sales_summary]
+  expect: [compare_sales]
 
 - id: top-customer
   category: analiz
