@@ -383,7 +383,8 @@ main { min-height: 0; }
   .group { grid-template-columns: 1fr; gap: 4px; }
   .group h3 { margin: 0; }
   .invoice { grid-template-columns: 1fr; padding: 16px; }
-  .drop { min-height: 260px; }
+  .drop { min-height: 220px; }
+  .drop img, .drop video { max-height: 300px; }
   .bill-fields { grid-template-columns: 1fr 1fr; }
   .bill-fields label:first-child { grid-column: 1 / -1; }
 }

@@ -43,9 +43,9 @@ _LABELS = {
 }
 
 _ARG_LABELS = {
-    "partner": "Müşteri", "vendor": "Tedarikçi", "name": "Ad", "city": "Şehir", "phone": "Telefon",
-    "email": "E-posta", "product": "Ürün", "price": "Yeni fiyat (KDV hariç)", "lines": "Kalemler",
-    "order_ref": "Sipariş", "date": "Tarih", "ref": "Belge no",
+    "order_ref": "Sipariş", "partner": "Müşteri", "vendor": "Tedarikçi", "name": "Ad", "city": "Şehir",
+    "phone": "Telefon", "email": "E-posta", "product": "Ürün", "price": "Yeni fiyat (KDV hariç)",
+    "lines": "Kalemler", "date": "Tarih", "ref": "Belge no",
 }
 
 
@@ -83,8 +83,12 @@ def _line(item: dict) -> str:
 
 
 def _pending(call: ToolCall) -> dict:
+    # Fixed field order: the model emits arguments in arbitrary order.
+    order = list(_ARG_LABELS)
+    keys = sorted(call.arguments, key=lambda k: order.index(k) if k in order else len(order))
     rows = []
-    for key, value in call.arguments.items():
+    for key in keys:
+        value = call.arguments[key]
         shown = [_line(v) for v in value] if isinstance(value, list) else value
         rows.append({"label": _ARG_LABELS.get(key, key), "value": shown})
     return {"name": call.name, "label": _LABELS.get(call.name, call.name), "rows": rows}

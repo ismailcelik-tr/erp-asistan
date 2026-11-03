@@ -115,3 +115,11 @@ def test_health_reports_company():
     client, _ = _client()
 
     assert client.get("/api/health").json()["company"] == "Netelsan"
+
+
+def test_pending_rows_follow_fixed_order():
+    client, _ = _client([_call("create_partner", city="Ankara", name="X")])
+
+    rows = client.post("/api/chat", json={"text": "X ekle"}).json()["pending"]["rows"]
+
+    assert [r["label"] for r in rows] == ["Ad", "Şehir"]
