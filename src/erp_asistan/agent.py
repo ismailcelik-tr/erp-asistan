@@ -3,6 +3,7 @@
 import datetime
 import enum
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -11,10 +12,23 @@ from erp_asistan.tools import Kind
 __all__ = ["Agent", "Status", "ToolCall", "TraceEntry", "Turn"]
 
 _MAX_STEPS = 10
+_NOTHING_PENDING = "Onay bekleyen işlem yok."
+
+# gemma4:12b sometimes reports "teklif oluşturuldu" after only read tools ran.
+_SUCCESS_CLAIM = re.compile(
+    r"(oluşturul|güncellen|kesil|onaylan|eklen|kaydedil|işlen)(dı|di|du|dü|mış|miş|muş|müş)",
+    re.IGNORECASE,
+)
+_CLAIM_CHALLENGE = (
+    "[Sistem denetimi] Bu istekte henüz hiçbir yazma aracı çalışmadı; ERP'de değişiklik yok. "
+    "İşlem gerekiyorsa ilgili aracı şimdi çağır. Gerekmiyorsa işlemin yapılmadığını açıkça söyle."
+)
 
 _SYSTEM_PROMPT = """Sen "Demo Ticaret A.Ş." şirketinin Odoo ERP asistanısın. Bugün {today}.
 Kurallar:
 - Veriyi asla uydurma; her bilgi için araç çağır.
+- Kullanıcı kayıt oluşturmak/değiştirmek isterse ilgili yazma aracını MUTLAKA çağır. Onayı arayüz ister; sen ayrıca onay sorma.
+- Bir işlemi ancak yazma aracı sonuç döndürdükten sonra "yapıldı" diye bildir; referans numarasını araç sonucundan al.
 - Kendin toplama/hesap yapma; araçların döndürdüğü toplamları (total, total_residual, untaxed) aynen kullan.
 - Kullanıcının verdiği firma/ürün adlarını olduğu gibi araçlara ilet.
 - Bir araç birden fazla eşleşme veya hata döndürürse kullanıcıya sor.
@@ -28,6 +42,7 @@ class Status(enum.Enum):
     DONE = "done"
     PENDING = "pending"
     REJECTED = "rejected"
+    GUARDED = "guarded"
 
 
 @dataclass
@@ -72,21 +87,31 @@ class Agent:
         today = datetime.date.today().isoformat()
         self._messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT.format(today=today)}]
         self._queue = []
+        self._wrote = False
+        self._challenged = False
 
     def send(self, text: str, images: list[str] | None = None) -> Turn:
         msg: dict = {"role": "user", "content": text}
         if images:
             msg["images"] = images
         self._messages.append(msg)
+        self._wrote = False
+        self._challenged = False
 
         return self._loop([])
 
     def approve(self) -> Turn:
+        if not self._queue:
+            return Turn(reply=_NOTHING_PENDING)
+
         call = self._queue.pop(0)
         trace = [self._execute(call)]
         return self._loop(trace)
 
     def reject(self) -> Turn:
+        if not self._queue:
+            return Turn(reply=_NOTHING_PENDING)
+
         call = self._queue.pop(0)
         self._tool_message(call.name, {"error": "Kullanıcı bu işlemi reddetti."})
         trace = [TraceEntry(call.name, call.arguments, Status.REJECTED)]
@@ -105,6 +130,12 @@ class Agent:
                 "content": resp["content"],
                 "tool_calls": [{"function": {"name": c.name, "arguments": c.arguments}} for c in calls],
             })
+
+            if not calls and self._is_false_claim(resp["content"]):
+                self._challenged = True
+                self._messages.append({"role": "user", "content": _CLAIM_CHALLENGE})
+                trace.append(TraceEntry("claim_guard", {"iddia": resp["content"]}, Status.GUARDED, "Model uyarıldı."))
+                continue
 
             if not calls:
                 return Turn(reply=resp["content"], trace=trace)
@@ -125,7 +156,12 @@ class Agent:
 
         return None
 
+    def _is_false_claim(self, content: str) -> bool:
+        return not self._wrote and not self._challenged and bool(_SUCCESS_CLAIM.search(content))
+
     def _execute(self, call: ToolCall) -> TraceEntry:
+        if self._tools.kind(call.name) is Kind.WRITE:
+            self._wrote = True
         result = self._tools.run(call.name, call.arguments)
         self._tool_message(call.name, result)
         return TraceEntry(call.name, call.arguments, Status.DONE, result)

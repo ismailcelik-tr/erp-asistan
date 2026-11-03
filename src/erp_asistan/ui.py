@@ -7,6 +7,7 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 import json
 import time
+from pathlib import Path
 
 import gradio as gr
 import httpx
@@ -17,11 +18,13 @@ from erp_asistan.fmt import tl
 from erp_asistan.invoice_reader import check, read_invoice
 from erp_asistan.llm import OllamaLLM
 from erp_asistan.odoo.client import OdooClient
+from erp_asistan.speech import transcribe, warm_up
 from erp_asistan.tools import ToolRegistry
 
 __all__ = ["main"]
 
 _PORT = 7860
+_WARM_UP_AUDIO = Path(__file__).resolve().parents[2] / "samples" / "audio" / "teklif-komutu.wav"
 _TRACE_LIMIT = 1500
 
 _LABELS = {
@@ -36,7 +39,10 @@ _LABELS = {
     "confirm_order": "Siparişi onayla",
     "create_invoice": "Fatura kes",
     "create_vendor_bill": "Tedarikçi faturası",
+    "claim_guard": "Denetim: araç çağrılmadan \"yapıldı\" denildi, model uyarıldı",
 }
+
+_ICONS = {Status.DONE: "🔧", Status.REJECTED: "⛔ Reddedildi:", Status.GUARDED: "🛡️"}
 
 _ARG_LABELS = {
     "partner": "Müşteri", "vendor": "Tedarikçi", "name": "Ad", "city": "Şehir",
@@ -81,7 +87,7 @@ def _describe(call: ToolCall) -> str:
 
 
 def _trace_message(entry, elapsed: float) -> dict:
-    icon = "🔧" if entry.status is Status.DONE else "⛔ Reddedildi:"
+    icon = _ICONS[entry.status]
     body = {"parametreler": entry.arguments, "sonuç": entry.result}
     text = json.dumps(body, ensure_ascii=False, indent=2, default=str)[:_TRACE_LIMIT]
     return {
@@ -128,14 +134,22 @@ def _build(agent: Agent, tools: ToolRegistry, llm: OllamaLLM) -> gr.Blocks:
             turn = Turn(reply=f"Model veya ERP'ye ulaşılamadı: {e}")
         return render(history, turn, started)
 
-    def on_send(text: str, history: list):
+    def on_send(text: str, history: list, shown: str | None = None):
         if not text.strip():
             yield history, gr.update(), "", gr.update(), text
             return
 
-        history = history + [{"role": "user", "content": text}]
+        history = history + [{"role": "user", "content": shown or text}]
         yield history, gr.update(visible=False), "", gr.update(interactive=False), ""
         yield *run(history, lambda: agent.send(text)), ""
+
+    def on_voice(audio: str | None, history: list):
+        if not audio:
+            yield history, gr.update(), "", gr.update(), ""
+            return
+
+        text = transcribe(Path(audio))
+        yield from on_send(text, history, shown=f"🎤 {text}")
 
     def decide(history: list, step):
         yield history, gr.update(visible=False), "", gr.update(interactive=False)
@@ -207,7 +221,8 @@ def _build(agent: Agent, tools: ToolRegistry, llm: OllamaLLM) -> gr.Blocks:
                             approve_btn = gr.Button("✅ Onayla", variant="primary")
                             reject_btn = gr.Button("❌ Reddet", variant="stop")
                     with gr.Row():
-                        box = gr.Textbox(placeholder="Komutunuzu yazın…", show_label=False, scale=8)
+                        mic = gr.Audio(sources=["microphone"], type="filepath", show_label=False, scale=3)
+                        box = gr.Textbox(placeholder="Komutunuzu yazın veya söyleyin…", show_label=False, scale=6)
                         send_btn = gr.Button("Gönder", variant="primary", scale=1)
 
                 with gr.Tab("📷 Fatura oku"):
@@ -240,6 +255,7 @@ def _build(agent: Agent, tools: ToolRegistry, llm: OllamaLLM) -> gr.Blocks:
         outputs = [chat, approval_box, approval_md, send_btn]
         box.submit(on_send, [box, chat], [*outputs, box])
         send_btn.click(on_send, [box, chat], [*outputs, box])
+        mic.stop_recording(on_voice, [mic, chat], [*outputs, box]).then(lambda: None, None, mic)
         approve_btn.click(on_approve, chat, outputs)
         reject_btn.click(on_reject, chat, outputs)
         reset_btn.click(on_reset, None, outputs)
@@ -254,6 +270,7 @@ def _build(agent: Agent, tools: ToolRegistry, llm: OllamaLLM) -> gr.Blocks:
 
 def main() -> None:
     load_dotenv(".env")
+    warm_up(_WARM_UP_AUDIO)
     llm = OllamaLLM()
     tools = ToolRegistry(OdooClient.from_env())
     agent = Agent(llm, tools)

@@ -1,4 +1,4 @@
-from erp_asistan.erp._lookup import resolve
+from erp_asistan.erp._lookup import resolve, search
 from erp_asistan.odoo.client import OdooClient
 
 __all__ = [
@@ -19,7 +19,7 @@ def _view(row: dict) -> dict:
 
 
 def find_products(odoo: OdooClient, name: str) -> list[dict]:
-    rows = odoo.search_read("product.product", [("name", "ilike", name)], _FIELDS, limit=_SEARCH_LIMIT)
+    rows = search(odoo, "product.product", name, _FIELDS, _SEARCH_LIMIT)
     return [_view(r) for r in rows]
 
 

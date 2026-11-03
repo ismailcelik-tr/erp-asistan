@@ -83,3 +83,13 @@ def test_sales_summary(odoo, customer, product):
 
     assert after["order_count"] == before["order_count"] + 1
     assert after["total"] > before["total"]
+
+
+def test_find_partner_tolerates_turkish_suffixes(odoo, customer, uniq):
+    rows = partners.find_partner(odoo, f"Yılmaz'ın {uniq}")
+
+    assert [r["name"] for r in rows] == [customer["name"]]
+
+
+def test_resolve_product_tolerates_suffixes(odoo, product, uniq):
+    assert products.resolve_product(odoo, f"laptopu {uniq}")["name"] == product["name"]

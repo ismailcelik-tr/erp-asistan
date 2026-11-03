@@ -69,3 +69,42 @@ def test_reject_skips_write():
     assert tools.ran == []
     assert turn.trace[-1].status is Status.REJECTED
     assert turn.reply == "İptal edildi."
+
+
+def test_approve_without_pending_is_harmless():
+    agent = Agent(FakeLLM([]), FakeTools())
+
+    assert agent.approve().reply
+    assert agent.reject().reply
+
+
+def test_false_success_claim_is_challenged():
+    tools = FakeTools()
+    llm = FakeLLM([
+        _call("find_partner", name="X"),
+        _text("Teklif başarıyla oluşturuldu."),
+        _call("create_quotation", partner="X"),
+    ])
+    agent = Agent(llm, tools)
+
+    turn = agent.send("X için teklif oluştur")
+
+    assert turn.pending.name == "create_quotation"
+    assert Status.GUARDED in [e.status for e in turn.trace]
+
+
+def test_claim_is_challenged_only_once():
+    agent = Agent(FakeLLM([_text("Oluşturuldu."), _text("Oluşturuldu.")]), FakeTools())
+
+    assert agent.send("teklif oluştur").reply == "Oluşturuldu."
+
+
+def test_claim_after_real_write_is_accepted():
+    llm = FakeLLM([_call("create_partner", name="X"), _text("Cari oluşturuldu.")])
+    agent = Agent(llm, FakeTools())
+
+    agent.send("X ekle")
+    turn = agent.approve()
+
+    assert turn.reply == "Cari oluşturuldu."
+    assert llm.calls == 2

@@ -1,4 +1,4 @@
-from erp_asistan.erp._lookup import resolve
+from erp_asistan.erp._lookup import resolve, search
 from erp_asistan.odoo.client import OdooClient
 
 __all__ = ["find_partner", "resolve_partner", "create_partner"]
@@ -8,7 +8,7 @@ _SEARCH_LIMIT = 10
 
 
 def find_partner(odoo: OdooClient, name: str) -> list[dict]:
-    return odoo.search_read("res.partner", [("name", "ilike", name)], _FIELDS, limit=_SEARCH_LIMIT)
+    return search(odoo, "res.partner", name, _FIELDS, _SEARCH_LIMIT)
 
 
 def resolve_partner(odoo: OdooClient, name: str) -> dict:
