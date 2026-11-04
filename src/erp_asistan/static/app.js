@@ -25,6 +25,7 @@ const HEALTH_INTERVAL_MS = 10000;
 const CHECK_DEBOUNCE_MS = 300;
 const MIN_RECORDING_MS = 400;
 const TRACE_ARGS_MAX = 70;
+const COPIED_MS = 1500;
 const SPACE = " ";
 
 const $ = (id) => document.getElementById(id);
@@ -60,6 +61,11 @@ async function refreshHealth() {
   try {
     const h = await api("/api/health");
     $("company").textContent = h.company;
+    if (h.company !== company) {
+      company = h.company;
+      const intro = $("intro");
+      if (intro) { intro.textContent = introText(); }
+    }
     document.querySelectorAll(".leds li").forEach((li) => {
       li.querySelector(".led").className = `led ${h[li.dataset.probe] ? "ok" : "alarm"}`;
     });
@@ -77,23 +83,93 @@ function initBrand() {
   logo.addEventListener("error", () => { logo.remove(); });
 }
 
-function initTabs() {
-  const tabs = [["tab-chat", "view-chat"], ["tab-invoice", "view-invoice"]];
-  for (const [tabId, viewId] of tabs) {
-    $(tabId).addEventListener("click", () => {
-      for (const [t, v] of tabs) {
-        $(t).setAttribute("aria-selected", String(t === tabId));
-        $(v).hidden = v !== viewId;
-      }
-      if (viewId === "view-chat") { $("input").focus(); }
-    });
+const VIEWS = ["view-chat", "view-invoice"];
+
+function showView(viewId) {
+  for (const v of VIEWS) { $(v).hidden = v !== viewId; }
+  if (viewId === "view-invoice") {
+    $("open-invoice").setAttribute("aria-current", "page");
+  } else {
+    $("open-invoice").removeAttribute("aria-current");
   }
+  markActive();
 }
 
 /* ---------- Chat rendering ---------- */
 
 const stream = $("stream");
 let busy = false;
+let company = "";
+
+const GENITIVE = { a: "ın", ı: "ın", o: "un", u: "un", e: "in", i: "in", ö: "ün", ü: "ün" };
+
+// Turkish genitive follows the last vowel; a final vowel takes a buffer n: Netelsan'ın, Ege'nin.
+function genitive(name) {
+  const lower = name.toLocaleLowerCase("tr");
+  const vowels = [...lower].filter((c) => c in GENITIVE);
+  const suffix = GENITIVE[vowels.at(-1)] || "in";
+  const buffer = lower.at(-1) in GENITIVE ? "n" : "";
+  return `${name}'${buffer}${suffix}`;
+}
+
+function introText() {
+  const who = company ? `${genitive(company)} ` : "";
+  return `Ben ${who}ERP asistanıyım. Ürün, stok ve fiyatları sorgular, satışları özetler ve dönemleri karşılaştırırım. `
+    + "Müşteri, teklif, sipariş ve faturaları sizin onayınızla oluştururum. Tedarikçi faturalarını fotoğraftan okuyabilirim.";
+}
+
+const OVERVIEW_CARDS = [
+  [(o) => String(o.quotations), "teklif onay bekliyor", "Onay bekleyen teklifler hangileri?"],
+  [(o) => String(o.low_stock), "ürün kritik stokta", "Stokta 5'ten az kalan ürünler hangileri?"],
+  [(o) => tl(o.open_total), (o) => `${o.open_invoices} açık fatura`, "Açık faturalar toplam ne kadar?"],
+];
+
+async function fillOverview(box) {
+  try {
+    const o = await api("/api/overview");
+    for (const [value, caption, question] of OVERVIEW_CARDS) {
+      const card = box.appendChild(el("button", "card"));
+      card.type = "button";
+      card.title = question;
+      card.append(el("b", null, value(o)), el("span", null, typeof caption === "function" ? caption(o) : caption));
+      card.addEventListener("click", () => draft(question));
+    }
+  } catch {
+    box.remove();
+  }
+}
+
+function renderExamples() {
+  const box = el("section", "examples");
+  box.append(el("h2", null, "Örnek komutlar"));
+  for (const [title, items] of EXAMPLES) {
+    const group = box.appendChild(el("div", "group"));
+    group.append(el("h3", null, title));
+    const chips = group.appendChild(el("div", "chips"));
+    for (const text of items) {
+      const chip = chips.appendChild(el("button", "chip", text));
+      chip.type = "button";
+      chip.addEventListener("click", () => draft(text));
+    }
+  }
+  return box;
+}
+
+function renderEmpty() {
+  const empty = el("div", "empty");
+  empty.id = "empty";
+  empty.append(el("h1", null, "Ne yapmak istersiniz?"));
+  empty.appendChild(el("p", "intro", introText())).id = "intro";
+  empty.append(el("p", "how", "Konuş düğmesine basıp söyleyin ya da yazın."));
+
+  const overview = empty.appendChild(el("div", "overview"));
+  overview.setAttribute("role", "group");
+  overview.setAttribute("aria-label", "ERP özeti");
+  fillOverview(overview);
+
+  empty.append(renderExamples());
+  stream.replaceChildren(empty);
+}
 
 function push(node) {
   $("empty")?.remove();
@@ -180,11 +256,20 @@ function renderError(message) {
   push(row);
 }
 
-function renderApproval(pending) {
+const DECISION_NOTE = new Map([[true, ["ok", "onaylandı"]], [false, ["alarm", "vazgeçildi"]], [null, ["", "karar verilmedi"]]]);
+
+// decision: undefined = awaiting the user (buttons); true/false/null = replayed from history.
+function renderApproval(pending, decision) {
   const panel = el("section", "approval");
   panel.setAttribute("aria-label", "Onay bekleyen işlem");
   const title = panel.appendChild(el("h3"));
-  title.append(el("i", "led wait"), `Onay bekliyor: ${pending.label}`);
+  if (decision === undefined) {
+    title.append(el("i", "led wait"), `Onay bekliyor: ${pending.label}`);
+  } else {
+    const [led, note] = DECISION_NOTE.get(decision);
+    panel.classList.add("decided");
+    title.append(el("i", `led ${led}`), `${pending.label} · ${note}`);
+  }
 
   const dl = panel.appendChild(el("dl"));
   for (const row of pending.rows) {
@@ -198,6 +283,11 @@ function renderApproval(pending) {
     }
   }
 
+  if (decision !== undefined) {
+    push(panel);
+    return;
+  }
+
   const actions = panel.appendChild(el("div", "actions"));
   const ok = actions.appendChild(el("button", "primary", "Onayla"));
   const no = actions.appendChild(el("button", "secondary", "Vazgeç"));
@@ -208,10 +298,10 @@ function renderApproval(pending) {
   ok.focus({ preventScroll: true });
 }
 
-function renderTurn(turn) {
+function renderTurn(turn, decision) {
   renderTrace(turn.trace, turn.seconds);
   if (turn.pending) {
-    renderApproval(turn.pending);
+    renderApproval(turn.pending, decision);
     return;
   }
   if (turn.reply) {
@@ -221,10 +311,19 @@ function renderTurn(turn) {
   }
 }
 
+const PLACEHOLDER = $("input").placeholder;
+
+function lockComposer() {
+  const readOnly = pastId !== null;
+  $("input").disabled = busy || readOnly;
+  $("send").disabled = busy || readOnly;
+  $("talk").disabled = readOnly;
+  $("input").placeholder = readOnly ? "Geçmiş sohbet salt okunur. Yazmak için şu anki sohbete dönün." : PLACEHOLDER;
+}
+
 function setBusy(on) {
   busy = on;
-  $("input").disabled = on;
-  $("send").disabled = on;
+  lockComposer();
   $("talk").classList.toggle("busy", on);
 }
 
@@ -238,22 +337,25 @@ async function run(path, data, workingText) {
   } finally {
     working.remove();
     setBusy(false);
-    if (!stream.querySelector(".approval")) { $("input").focus({ preventScroll: true }); }
+    if (!stream.querySelector(".approval:not(.decided)")) { $("input").focus({ preventScroll: true }); }
+    loadHistory();
   }
 }
 
-function showExamples(open) {
-  $("toggle-examples").setAttribute("aria-expanded", String(open));
-  $("example-groups").hidden = !open;
+// Examples fill the input; the user reviews and sends.
+function draft(text) {
+  const input = $("input");
+  input.value = text;
+  input.focus();
+  input.setSelectionRange(text.length, text.length);
 }
 
 function send(text, voice = false) {
   const clean = text.trim();
-  if (!clean || busy) { return; }
-  if (!stream.querySelector(".msg")) { showExamples(false); }
+  if (!clean || busy || pastId) { return; }
   renderUser(clean, voice);
   $("input").value = "";
-  run("/api/chat", { text: clean }, "Çalışıyor");
+  run("/api/chat", { text: clean, voice }, "Çalışıyor");
 }
 
 function decide(panel, path) {
@@ -268,30 +370,176 @@ function initChat() {
     send($("input").value);
   });
 
-  $("reset").addEventListener("click", async () => {
-    await postJson("/api/reset");
-    stream.replaceChildren();
-    const empty = el("div", "empty");
-    empty.id = "empty";
-    empty.append(el("h1", null, "Ne yapmak istersiniz?"), el("p", null, "Yeni sohbet başladı."));
-    stream.append(empty);
+  $("new-chat").addEventListener("click", async () => {
+    if (busy || recorder) { return; }
+    toggleDrawer(false);
+    showView("view-chat");
+    try {
+      await postJson("/api/reset");
+    } catch (e) {
+      renderError(e.message);
+      return;
+    }
+    liveNodes = null;
+    pastId = null;
+    lockComposer();
+    renderEmpty();
+    await loadHistory();
     $("input").focus();
   });
+}
 
-  $("toggle-examples").addEventListener("click", () => {
-    showExamples($("toggle-examples").getAttribute("aria-expanded") !== "true");
+/* ---------- History ---------- */
+
+const historyList = $("history-list");
+const dayTime = new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const clockTime = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit" });
+let currentId = null;
+let pastId = null;     // conversation shown read-only; null = live
+let liveNodes = null;  // live conversation, detached while a past one is shown
+
+function when(iso) {
+  const d = new Date(iso);
+  return d.toDateString() === new Date().toDateString() ? clockTime.format(d) : dayTime.format(d);
+}
+
+function markActive() {
+  const active = $("view-chat").hidden ? null : pastId ?? currentId;
+  historyList.querySelectorAll("button").forEach((b) => {
+    if (b.dataset.id === active) {
+      b.setAttribute("aria-current", "true");
+    } else {
+      b.removeAttribute("aria-current");
+    }
+  });
+}
+
+async function loadHistory() {
+  try {
+    const { current, items } = await api("/api/history");
+    currentId = current;
+    historyList.replaceChildren();
+    $("history-none").hidden = items.length > 0;
+    for (const item of items) {
+      const btn = historyList.appendChild(el("li")).appendChild(el("button", "history-item"));
+      btn.type = "button";
+      btn.dataset.id = item.id;
+      const stamp = item.id === current ? "Şu anki sohbet" : when(item.started);
+      btn.append(el("span", "title", item.title || "Sohbet"), el("span", "when", stamp));
+      btn.addEventListener("click", () => openConversation(item.id));
+    }
+    markActive();
+  } catch {
+    // The list is a convenience: chat keeps working without it.
+  }
+}
+
+function replay(events, live) {
+  events.forEach((e, i) => {
+    if (e.type === "user") { renderUser(e.text, e.voice); return; }
+    if (e.type === "error") { renderError(e.message); return; }
+    if (e.type !== "turn") { return; }
+
+    const next = events[i + 1];
+    const awaiting = live && !next;
+    renderTurn(e, awaiting ? undefined : (next?.type === "decision" ? next.approved : null));
+  });
+}
+
+function showLive() {
+  if (liveNodes) {
+    stream.replaceChildren(...liveNodes);
+    liveNodes = null;
+    stream.scrollTop = stream.scrollHeight;
+  }
+  pastId = null;
+  lockComposer();
+  markActive();
+}
+
+async function openConversation(id) {
+  if (busy || recorder) { return; }
+  toggleDrawer(false);
+  showView("view-chat");
+  if (id === currentId) {
+    showLive();
+    return;
+  }
+
+  let convo;
+  try {
+    convo = await api(`/api/history/${id}`);
+  } catch {
+    return;
+  }
+  if (!liveNodes) { liveNodes = [...stream.childNodes]; }
+  pastId = id;
+
+  const banner = el("div", "past");
+  banner.append(el("span", null, `Geçmiş sohbet · ${when(convo.started)} · salt okunur`));
+  const back = banner.appendChild(el("button", "link", "Şu anki sohbete dön"));
+  back.type = "button";
+  back.addEventListener("click", showLive);
+
+  stream.replaceChildren(banner);
+  replay(convo.events, false);
+  stream.scrollTop = 0;
+  lockComposer();
+  markActive();
+}
+
+const NARROW = window.matchMedia("(max-width: 900px)");
+const PANEL_COLLAPSED_KEY = "panel-collapsed";
+
+// Narrow screens: the panel is an overlay drawer. Wide screens: a column that can be collapsed.
+function toggleDrawer(open) {
+  if (!NARROW.matches) { return; }
+  document.body.classList.toggle("panel-open", open);
+  $("toggle-panel").setAttribute("aria-expanded", String(open));
+}
+
+function togglePanel() {
+  if (NARROW.matches) {
+    toggleDrawer(!document.body.classList.contains("panel-open"));
+    return;
+  }
+  const collapsed = document.body.classList.toggle("panel-collapsed");
+  localStorage.setItem(PANEL_COLLAPSED_KEY, collapsed ? "1" : "");
+  $("toggle-panel").setAttribute("aria-expanded", String(!collapsed));
+}
+
+async function initHistory() {
+  const collapsed = Boolean(localStorage.getItem(PANEL_COLLAPSED_KEY));
+  document.body.classList.toggle("panel-collapsed", collapsed);
+  $("toggle-panel").setAttribute("aria-expanded", String(!NARROW.matches && !collapsed));
+  $("toggle-panel").addEventListener("click", togglePanel);
+  NARROW.addEventListener("change", () => {
+    document.body.classList.remove("panel-open");
+    const open = !NARROW.matches && !document.body.classList.contains("panel-collapsed");
+    $("toggle-panel").setAttribute("aria-expanded", String(open));
+  });
+  $("open-invoice").addEventListener("click", () => {
+    toggleDrawer(false);
+    showView("view-invoice");
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { toggleDrawer(false); }
+  });
+  // The narrow-layout backdrop is body::after, so its clicks target body.
+  document.body.addEventListener("click", (e) => {
+    if (e.target === document.body) { toggleDrawer(false); }
   });
 
-  const groups = $("example-groups");
-  for (const [title, items] of EXAMPLES) {
-    const group = groups.appendChild(el("div", "group"));
-    group.append(el("h3", null, title));
-    const chips = group.appendChild(el("div", "chips"));
-    for (const text of items) {
-      const chip = chips.appendChild(el("button", "chip", text));
-      chip.type = "button";
-      chip.addEventListener("click", () => send(text));
-    }
+  renderEmpty();
+  await loadHistory();
+
+  // After a page reload, show the conversation the server still holds.
+  try {
+    const convo = await api(`/api/history/${currentId}`);
+    stream.replaceChildren();
+    replay(convo.events, true);
+  } catch {
+    // No current conversation yet: keep the empty state.
   }
 }
 
@@ -332,7 +580,7 @@ function startMeter(streamIn) {
 }
 
 async function startRecording() {
-  if (recorder || busy) { return; }
+  if (recorder || busy || pastId) { return; }
   let input;
   try {
     input = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -399,7 +647,7 @@ function initTalk() {
   const typing = (e) => e.target.closest("input, textarea, [contenteditable]");
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && recorder) { stopRecording(true); return; }
-    if (e.key !== SPACE || e.repeat || typing(e) || $("view-chat").hidden) { return; }
+    if (e.key !== SPACE || e.repeat || typing(e) || $("view-chat").hidden || $("help").open) { return; }
     if (e.target.closest("button")) { return; }
     e.preventDefault();
     startRecording();
@@ -615,11 +863,51 @@ function initInvoice() {
   });
 }
 
+/* ---------- Help ---------- */
+
+async function copy(btn, text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = "Kopyalandı";
+  } catch {
+    btn.textContent = "Kopyalanamadı";
+  }
+  setTimeout(() => { btn.textContent = "Kopyala"; }, COPIED_MS);
+}
+
+function initHelp() {
+  const dialog = $("help");
+  $("open-help").addEventListener("click", () => {
+    toggleDrawer(false);
+    dialog.showModal();
+  });
+  $("close-help").addEventListener("click", () => dialog.close());
+  // Backdrop clicks target the dialog element itself; its content sits in child elements.
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) { dialog.close(); }
+  });
+
+  const box = $("help-examples");
+  for (const [title, items] of EXAMPLES) {
+    box.append(el("h4", null, title));
+    const list = box.appendChild(el("ul", "copy-list"));
+    for (const text of items) {
+      const li = list.appendChild(el("li"));
+      li.append(el("span", null, text));
+      const btn = li.appendChild(el("button", "copy", "Kopyala"));
+      btn.type = "button";
+      btn.setAttribute("aria-label", `Kopyala: ${text}`);
+      btn.addEventListener("click", () => copy(btn, text));
+    }
+  }
+}
+
 /* ---------- Boot ---------- */
 
 initBrand();
-initTabs();
 initChat();
+initHistory();
+initHelp();
 initTalk();
 initInvoice();
 refreshHealth();

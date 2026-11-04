@@ -9,32 +9,37 @@
 </head>
 <body>
   <header class="bar">
+    <button type="button" id="toggle-panel" class="toggle-panel" aria-controls="panel" aria-expanded="true" aria-label="Menü"></button>
     <div class="brand">
       <img id="logo" src="/api/logo" alt="" hidden>
       <span id="company" class="brand-name"></span>
       <span class="brand-app">ERP Asistanı</span>
     </div>
 
-    <nav class="tabs" role="tablist" aria-label="Görünüm">
-      <button role="tab" id="tab-chat" aria-selected="true" aria-controls="view-chat">Sohbet</button>
-      <button role="tab" id="tab-invoice" aria-selected="false" aria-controls="view-invoice">Fatura oku</button>
-    </nav>
-
     <ul class="leds" aria-label="Sistem durumu">
-      <li data-probe="model"><i class="led"></i>Model</li>
+      <li data-probe="model"><i class="led"></i>Yapay Zeka</li>
       <li data-probe="erp"><i class="led"></i>ERP</li>
-      <li data-probe="speech"><i class="led"></i>Ses</li>
     </ul>
   </header>
 
+  <aside id="panel" class="panel" aria-label="Menü ve sohbet geçmişi">
+    <button type="button" id="new-chat" class="new-chat">Yeni sohbet</button>
+    <button type="button" id="open-invoice" class="nav-item">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l5 5v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm8 1.5V8h4.5M8 12h8M8 16h8M8 8h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      Fatura oku
+    </button>
+    <h2>Geçmiş</h2>
+    <ol id="history-list" class="history-list"></ol>
+    <p id="history-none" class="history-none">Henüz sohbet yok.</p>
+    <button type="button" id="open-help" class="nav-item help-item" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.6M12 16.6v.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      Yardım
+    </button>
+  </aside>
+
   <main>
-    <section id="view-chat" class="view" role="tabpanel" aria-labelledby="tab-chat">
-      <div id="stream" class="stream" aria-live="polite">
-        <div id="empty" class="empty">
-          <h1>Ne yapmak istersiniz?</h1>
-          <p>Konuş düğmesine basıp söyleyin ya da yazın. Kayıt değiştiren her işlem sizin onayınızla yapılır.</p>
-        </div>
-      </div>
+    <section id="view-chat" class="view" aria-label="Sohbet">
+      <div id="stream" class="stream" aria-live="polite"></div>
 
       <div class="dock">
         <form id="composer" class="composer" autocomplete="off">
@@ -49,20 +54,10 @@
           </div>
           <p id="talk-hint" class="hint">Basın ve konuşun, bitince tekrar basın. Boşluk tuşunu basılı tutarak da konuşabilirsiniz.</p>
         </form>
-
-        <section class="examples" aria-labelledby="examples-title">
-          <div class="examples-head">
-            <h2 id="examples-title">
-              <button type="button" id="toggle-examples" class="toggle" aria-expanded="true" aria-controls="example-groups">Örnek komutlar</button>
-            </h2>
-            <button type="button" id="reset" class="link">Yeni sohbet</button>
-          </div>
-          <div id="example-groups"></div>
-        </section>
       </div>
     </section>
 
-    <section id="view-invoice" class="view" role="tabpanel" aria-labelledby="tab-invoice" hidden>
+    <section id="view-invoice" class="view" aria-label="Fatura oku" hidden>
       <div class="invoice">
         <div class="doc">
           <div id="drop" class="drop" tabindex="0" role="button" aria-label="Fatura görseli seç">
@@ -111,6 +106,49 @@
       </div>
     </section>
   </main>
+
+  <dialog id="help" class="help" aria-labelledby="help-title">
+    <div class="help-head">
+      <h2 id="help-title">Nasıl kullanılır?</h2>
+      <button type="button" id="close-help" class="close" aria-label="Kapat"></button>
+    </div>
+
+    <div class="help-body">
+      <section>
+        <h3>Komut verin</h3>
+        <ul>
+          <li>Yazma alanına yazın ve Enter'a basın.</li>
+          <li>Ya da <b>Konuş</b> düğmesine basın, konuşun, bitince tekrar basın. Boşluk tuşunu basılı tutarak da konuşabilirsiniz; iptal için Esc.</li>
+          <li>macOS dikte de çalışır: yazma alanına tıklayın, F5'e basıp konuşun.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h3>Onay</h3>
+        <p>Müşteri ekleme, fiyat değişikliği, teklif, sipariş ve fatura gibi kayıt değiştiren her işlem önce <b>Onay bekliyor</b> panelinde gösterilir. <b>Onayla</b>'ya basmadan ERP'ye hiçbir şey yazılmaz.</p>
+      </section>
+
+      <section>
+        <h3>Fatura oku</h3>
+        <p>Sol paneldeki <b>Fatura oku</b>'ya girin. Fatura görselini bırakın ya da kamerayla çekin, <b>Faturayı oku</b>'ya basın. Okunan alanları kontrol edin; tutarlar tutmuyorsa uyarı çıkar. <b>Odoo'ya işle</b> taslak tedarikçi faturası oluşturur.</p>
+      </section>
+
+      <section>
+        <h3>Geçmiş</h3>
+        <p><b>Yeni sohbet</b> mevcut sohbeti geçmişe kaydeder. Geçmiş sohbetler salt okunur açılır; yazmak için şu anki sohbete dönün.</p>
+      </section>
+
+      <section>
+        <h3>Durum ışıkları</h3>
+        <p>Başlıktaki <b>Yapay Zeka</b> ve <b>ERP</b> ışıkları yeşil yanıp sönüyorsa ikisi de çalışıyordur. Kırmızı ışık o parçaya ulaşılamadığını gösterir.</p>
+      </section>
+
+      <section>
+        <h3>Örnek komutlar</h3>
+        <div id="help-examples"></div>
+      </section>
+    </div>
+  </dialog>
 
   <script src="/static/app.js"></script>
 </body>
