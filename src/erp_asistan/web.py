@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from erp_asistan.agent import Agent, Status, ToolCall, Turn
+from erp_asistan.history import History
 from erp_asistan.invoice_reader import check, read_invoice
 
 __all__ = ["Services", "create_app", "main"]
@@ -24,6 +25,7 @@ _STATIC = Path(__file__).parent / "static"
 _HTTP_UNPROCESSABLE = 422
 _HTTP_NOT_FOUND = 404
 _HTTP_BAD_GATEWAY = 502
+_LOW_STOCK_THRESHOLD = 5
 
 _LABELS = {
     "find_partner": "Cari arandı",
@@ -58,11 +60,13 @@ class Services:
     company: dict
     odoo_url: str
     odoo_db: str
+    history: History
     probes: dict[str, Callable[[], bool]] = field(default_factory=dict)
 
 
 class ChatIn(BaseModel):
     text: str
+    voice: bool = False
 
 
 class InvoiceIn(BaseModel):
@@ -120,14 +124,19 @@ def create_app(s: Services) -> FastAPI:
     app = FastAPI(title="ERP Asistanı")
     lock = threading.Lock()  # single shared conversation
 
-    def step(fn: Callable[[], Turn]) -> dict:
+    def step(fn: Callable[[], Turn], event: dict) -> dict:
         started = time.time()
         with lock:
+            s.history.add(event)
             try:
                 turn = fn()
             except httpx.HTTPError as e:
-                raise HTTPException(_HTTP_BAD_GATEWAY, f"Model veya ERP'ye ulaşılamadı: {e}") from e
-        return _turn(turn, time.time() - started)
+                detail = f"Model veya ERP'ye ulaşılamadı: {e}"
+                s.history.add({"type": "error", "message": detail})
+                raise HTTPException(_HTTP_BAD_GATEWAY, detail) from e
+            result = _turn(turn, time.time() - started)
+            s.history.add({"type": "turn", **result})
+        return result
 
     @app.get("/api/health")
     def health() -> dict:
@@ -141,21 +150,52 @@ def create_app(s: Services) -> FastAPI:
 
     @app.post("/api/chat")
     def chat(body: ChatIn) -> dict:
-        return step(lambda: s.agent.send(body.text))
+        return step(lambda: s.agent.send(body.text), {"type": "user", "text": body.text, "voice": body.voice})
 
     @app.post("/api/approve")
     def approve() -> dict:
-        return step(s.agent.approve)
+        return step(s.agent.approve, {"type": "decision", "approved": True})
 
     @app.post("/api/reject")
     def reject() -> dict:
-        return step(s.agent.reject)
+        return step(s.agent.reject, {"type": "decision", "approved": False})
 
     @app.post("/api/reset")
     def reset() -> dict:
         with lock:
             s.agent.reset()
+            s.history.start()
         return {"ok": True}
+
+    @app.get("/api/history")
+    def history() -> dict:
+        return {"current": s.history.current, "items": s.history.list()}
+
+    @app.get("/api/history/{convo_id}")
+    def conversation(convo_id: str) -> dict:
+        convo = s.history.get(convo_id)
+        if convo is None:
+            raise HTTPException(_HTTP_NOT_FOUND)
+        return convo
+
+    @app.get("/api/overview")
+    def overview() -> dict:
+        try:
+            quotations = s.tools.run("find_orders", {"state": "quotation"})
+            low = s.tools.run("get_low_stock", {"threshold": _LOW_STOCK_THRESHOLD})
+            invoices = s.tools.run("list_open_invoices", {})
+        except httpx.HTTPError as e:
+            raise HTTPException(_HTTP_BAD_GATEWAY, f"ERP'ye ulaşılamadı: {e}") from e
+
+        for result in (quotations, low, invoices):
+            if isinstance(result, dict) and "error" in result:
+                raise HTTPException(_HTTP_BAD_GATEWAY, result["error"])
+        return {
+            "quotations": len(quotations),
+            "low_stock": len(low),
+            "open_invoices": invoices["count"],
+            "open_total": invoices["total_residual"],
+        }
 
     @app.post("/api/transcribe")
     def transcribe(audio: UploadFile = File(...)) -> dict:
@@ -206,6 +246,7 @@ def create_app(s: Services) -> FastAPI:
 
 
 _PORT = 7860
+_HISTORY_DIR = "history"
 _OLLAMA_PS = "http://localhost:11434/api/ps"
 _PROBE_TIMEOUT_SECONDS = 2
 _WARM_UP_AUDIO = Path(__file__).resolve().parents[2] / "samples" / "audio" / "teklif-komutu.wav"
@@ -245,6 +286,7 @@ def main() -> None:
         company=company,
         odoo_url=odoo_url,
         odoo_db=os.environ["ODOO_DB"],
+        history=History(Path.cwd() / _HISTORY_DIR),
         probes={
             "model": lambda: _reachable(_OLLAMA_PS),
             "erp": lambda: _reachable(f"{odoo_url}/web/health"),

@@ -1,6 +1,10 @@
+import tempfile
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from erp_asistan.agent import Agent
+from erp_asistan.history import History
 from erp_asistan.tools import Kind
 from erp_asistan.web import Services, create_app
 
@@ -32,6 +36,16 @@ class FakeTools:
         return {"id": 7, "partner": args.get("vendor", "X"), "total": 120.0}
 
 
+class OverviewTools(FakeTools):
+    def run(self, name, args):
+        self.ran.append((name, args))
+        return {
+            "find_orders": [{"ref": "S1"}, {"ref": "S2"}],
+            "get_low_stock": [{"name": "A"}],
+            "list_open_invoices": {"count": 3, "total_residual": 1500.0, "invoices": []},
+        }[name]
+
+
 def _call(tool, **args):
     return {"content": "", "tool_calls": [{"name": tool, "arguments": args}]}
 
@@ -58,6 +72,7 @@ def _client(replies=(), invoice=INVOICE, tools=None):
         company={"name": "Netelsan", "logo": None},
         odoo_url="http://odoo",
         odoo_db="erp",
+        history=History(Path(tempfile.mkdtemp())),
     )
     return TestClient(create_app(services)), tools
 
@@ -123,3 +138,60 @@ def test_pending_rows_follow_fixed_order():
     rows = client.post("/api/chat", json={"text": "X ekle"}).json()["pending"]["rows"]
 
     assert [r["label"] for r in rows] == ["Ad", "Şehir"]
+
+
+def test_conversation_is_recorded_with_decision():
+    client, _ = _client([_call("create_partner", name="X"), _text("Eklendi.")])
+
+    client.post("/api/chat", json={"text": "X ekle", "voice": True})
+    client.post("/api/approve")
+
+    listing = client.get("/api/history").json()
+    [item] = listing["items"]
+    assert item["id"] == listing["current"]
+    assert item["title"] == "X ekle"
+
+    events = client.get(f"/api/history/{item['id']}").json()["events"]
+    assert [e["type"] for e in events] == ["user", "turn", "decision", "turn"]
+    assert events[0]["voice"] is True
+    assert events[1]["pending"]["name"] == "create_partner"
+    assert events[2]["approved"] is True
+    assert events[3]["reply"] == "Eklendi."
+
+
+def test_reset_starts_new_conversation():
+    client, _ = _client([_text("A"), _text("B")])
+
+    client.post("/api/chat", json={"text": "bir"})
+    client.post("/api/reset")
+    client.post("/api/chat", json={"text": "iki"})
+
+    listing = client.get("/api/history").json()
+    assert [i["title"] for i in listing["items"]] == ["iki", "bir"]
+    assert listing["items"][0]["id"] == listing["current"]
+
+
+def test_unknown_conversation_is_404():
+    client, _ = _client()
+
+    assert client.get("/api/history/20990101-000000-000000").status_code == 404
+
+
+def test_overview_counts_from_erp():
+    client, tools = _client(tools=OverviewTools())
+
+    body = client.get("/api/overview").json()
+
+    assert body == {"quotations": 2, "low_stock": 1, "open_invoices": 3, "open_total": 1500.0}
+    assert ("find_orders", {"state": "quotation"}) in tools.ran
+
+
+class FailingTools(FakeTools):
+    def run(self, name, args):
+        return {"error": "Odoo hata verdi"}
+
+
+def test_overview_reports_erp_error():
+    client, _ = _client(tools=FailingTools())
+
+    assert client.get("/api/overview").status_code == 502

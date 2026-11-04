@@ -12,4 +12,5 @@ docker compose exec -T odoo rm -rf "/var/lib/odoo/filestore/$DB"
 KEY=$(scripts/setup_db.sh "$DB")
 sed -i '' "s|^ODOO_API_KEY=.*|ODOO_API_KEY=$KEY|" .env
 
+rm -rf history  # conversation transcripts
 uv run python scripts/seed.py
