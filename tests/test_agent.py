@@ -157,3 +157,21 @@ def test_prime_warms_llm_without_touching_conversation():
     assert [m["role"] for m in messages] == ["system", "user"]
     assert tools == []
     assert len(agent._messages) == 1
+
+
+def test_explaining_the_process_is_not_challenged():
+    text = "Teklif başarıyla oluşturulduğunda sistem bir referans döndürür; onaylandıktan sonra siparişe dönüşür."
+    llm = FakeLLM([_text(text)])
+
+    turn = Agent(llm, FakeTools()).send("Teklif oluştururken hangi adımları izliyorsun?")
+
+    assert turn.reply == text
+    assert llm.calls == 1
+
+
+def test_formal_claim_is_challenged():
+    llm = FakeLLM([_text("Teklifiniz oluşturulmuştur."), _call("create_quotation", partner="X")])
+
+    turn = Agent(llm, FakeTools()).send("X için teklif oluştur")
+
+    assert turn.pending.name == "create_quotation"

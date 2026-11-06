@@ -16,8 +16,9 @@ _NOTHING_PENDING = "Onay bekleyen işlem yok."
 _PRIME_MESSAGE = "Merhaba"
 
 # gemma4:12b sometimes reports "teklif oluşturuldu" after only read tools ran.
+# Word must end there (optionally + -tır): "oluşturuldu", "oluşturulmuştur" claim; "oluşturulduğunda" explains.
 _SUCCESS_CLAIM = re.compile(
-    r"(oluşturul|güncellen|kesil|onaylan|eklen|kaydedil|işlen)(dı|di|du|dü|mış|miş|muş|müş)",
+    r"(oluşturul|güncellen|kesil|onaylan|eklen|kaydedil|işlen)(dı|di|du|dü|mış|miş|muş|müş)(tır|tir|tur|tür)?\b",
     re.IGNORECASE,
 )
 _MAX_CHALLENGES = 2

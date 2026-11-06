@@ -308,7 +308,9 @@ function renderTrace(trace, secs) {
     const note = STATUS_NOTE[t.status] || argSummary(t.arguments);
     if (note) { summary.append(el("span", "args", note)); }
     if (i === trace.length - 1) { summary.append(el("span", "time", seconds(secs))); }
-    details.append(el("pre", null, JSON.stringify({ parametreler: t.arguments, sonuç: t.result }, null, 2)));
+    details.append(el("pre", null, t.status === "guarded"
+      ? `Modelin cümlesi:\n\n${t.arguments.iddia}\n\nBu sırada hiçbir yazma aracı çalışmamıştı; model yeniden denemesi için uyarıldı.`
+      : JSON.stringify({ parametreler: t.arguments, sonuç: t.result }, null, 2)));
   });
   push(list);
 }
