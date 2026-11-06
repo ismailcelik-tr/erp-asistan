@@ -57,10 +57,35 @@ const postJson = (path, data) => api(path, {
 
 /* ---------- Header ---------- */
 
+let erpLabels = {};
+
+// Updated in place: rebuilding options would close an open dropdown.
+function renderErps(erps) {
+  const select = $("erp");
+  if (select.options.length !== erps.length) {
+    select.replaceChildren(...erps.map((e) => {
+      const opt = el("option");
+      opt.value = e.id;
+      return opt;
+    }));
+  }
+  erps.forEach((e, i) => {
+    const opt = select.options[i];
+    opt.textContent = e.up ? e.label : `${e.label} · kapalı`;
+    opt.disabled = !e.up && !e.active;
+    if (e.active) { select.value = e.id; }
+  });
+  const first = Object.keys(erpLabels).length === 0;
+  erpLabels = Object.fromEntries(erps.map((e) => [e.id, e.label]));
+  // History may have rendered before the labels arrived.
+  if (first) { loadHistory(); }
+}
+
 async function refreshHealth() {
   try {
     const h = await api("/api/health");
     $("company").textContent = h.company;
+    renderErps(h.erps);
     if (h.company !== company) {
       company = h.company;
       const intro = $("intro");
@@ -76,11 +101,11 @@ async function refreshHealth() {
 
 function initBrand() {
   const logo = $("logo");
-  const show = () => { logo.hidden = false; $("company").hidden = true; };
+  const show = (ok) => { logo.hidden = !ok; $("company").hidden = ok; };
   // A cached logo can finish loading before this script runs.
-  if (logo.complete && logo.naturalWidth) { show(); return; }
-  logo.addEventListener("load", show);
-  logo.addEventListener("error", () => { logo.remove(); });
+  if (logo.complete && logo.naturalWidth) { show(true); }
+  logo.addEventListener("load", () => show(true));
+  logo.addEventListener("error", () => show(false));
 }
 
 const VIEWS = ["view-chat", "view-invoice"];
@@ -324,6 +349,7 @@ function lockComposer() {
 function setBusy(on) {
   busy = on;
   lockComposer();
+  $("erp").disabled = on;
   $("talk").classList.toggle("busy", on);
 }
 
@@ -364,28 +390,41 @@ function decide(panel, path) {
   run(path, undefined, path.endsWith("approve") ? "Uygulanıyor" : "Vazgeçiliyor");
 }
 
+// Starts an empty live conversation after the server accepted path; false if it refused.
+async function freshChat(path, data) {
+  if (busy || recorder) { return false; }
+  toggleDrawer(false);
+  showView("view-chat");
+  try {
+    await postJson(path, data);
+  } catch (e) {
+    renderError(e.message);
+    return false;
+  }
+  liveNodes = null;
+  pastId = null;
+  lockComposer();
+  renderEmpty();
+  await loadHistory();
+  $("input").focus();
+  return true;
+}
+
 function initChat() {
   $("composer").addEventListener("submit", (e) => {
     e.preventDefault();
     send($("input").value);
   });
 
-  $("new-chat").addEventListener("click", async () => {
-    if (busy || recorder) { return; }
-    toggleDrawer(false);
-    showView("view-chat");
-    try {
-      await postJson("/api/reset");
-    } catch (e) {
-      renderError(e.message);
-      return;
+  $("new-chat").addEventListener("click", () => { freshChat("/api/reset"); });
+
+  $("erp").addEventListener("change", async (e) => {
+    const id = e.target.value;
+    company = "";
+    if (await freshChat("/api/erp", { id })) {
+      $("logo").src = `/api/logo?erp=${id}`;
     }
-    liveNodes = null;
-    pastId = null;
-    lockComposer();
-    renderEmpty();
-    await loadHistory();
-    $("input").focus();
+    refreshHealth();
   });
 }
 
@@ -425,7 +464,8 @@ async function loadHistory() {
       btn.type = "button";
       btn.dataset.id = item.id;
       const stamp = item.id === current ? "Şu anki sohbet" : when(item.started);
-      btn.append(el("span", "title", item.title || "Sohbet"), el("span", "when", stamp));
+      const where = item.erp && Object.keys(erpLabels).length > 1 ? ` · ${erpLabels[item.erp]}` : "";
+      btn.append(el("span", "title", item.title || "Sohbet"), el("span", "when", stamp + where));
       btn.addEventListener("click", () => openConversation(item.id));
     }
     markActive();
@@ -847,11 +887,11 @@ function initInvoice() {
     const status = $("post-status");
     $("post").disabled = true;
     status.className = "status";
-    status.textContent = "Odoo'ya işleniyor…";
+    status.textContent = "ERP'ye işleniyor…";
     try {
       const r = await postJson("/api/invoice/post", currentInvoice());
       status.replaceChildren(`Taslak tedarikçi faturası oluşturuldu: ${r.partner}, ${tl(r.total)}. `);
-      const link = status.appendChild(el("a", null, "Odoo'da aç"));
+      const link = status.appendChild(el("a", null, "ERP'de aç"));
       link.href = r.url;
       link.target = "_blank";
       link.rel = "noopener";

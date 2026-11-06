@@ -87,6 +87,18 @@ button, input { font: inherit; color: inherit; }
 .leds { display: flex; gap: 14px; margin: 0 0 0 auto; padding: 0; list-style: none; }
 .leds li { display: flex; align-items: center; gap: 6px; font: 400 14px/1 var(--display); color: var(--steel); }
 
+.erp-pick {
+  padding: 4px 8px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--plate);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.erp-pick:hover { border-color: var(--black); }
+.erp-pick:disabled { cursor: progress; opacity: .6; }
+
 .led {
   display: inline-block;
   flex: none;

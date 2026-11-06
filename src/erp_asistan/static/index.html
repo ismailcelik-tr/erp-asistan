@@ -18,7 +18,7 @@
 
     <ul class="leds" aria-label="Sistem durumu">
       <li data-probe="model"><i class="led"></i>Yapay Zeka</li>
-      <li data-probe="erp"><i class="led"></i>ERP</li>
+      <li data-probe="erp"><i class="led"></i><select id="erp" class="erp-pick" aria-label="ERP seçimi"></select></li>
     </ul>
   </header>
 
@@ -99,7 +99,7 @@
           <p id="check" class="check"><i class="led"></i><span></span></p>
 
           <div class="bill-actions">
-            <button type="submit" id="post" class="primary">Odoo'ya işle</button>
+            <button type="submit" id="post" class="primary">ERP'ye işle</button>
           </div>
           <p id="post-status" class="status" aria-live="polite"></p>
         </form>
@@ -130,7 +130,7 @@
 
       <section>
         <h3>Fatura oku</h3>
-        <p>Sol paneldeki <b>Fatura oku</b>'ya girin. Fatura görselini bırakın ya da kamerayla çekin, <b>Faturayı oku</b>'ya basın. Okunan alanları kontrol edin; tutarlar tutmuyorsa uyarı çıkar. <b>Odoo'ya işle</b> taslak tedarikçi faturası oluşturur.</p>
+        <p>Sol paneldeki <b>Fatura oku</b>'ya girin. Fatura görselini bırakın ya da kamerayla çekin, <b>Faturayı oku</b>'ya basın. Okunan alanları kontrol edin; tutarlar tutmuyorsa uyarı çıkar. <b>ERP'ye işle</b> taslak tedarikçi faturası seçili ERP'de oluşturur.</p>
       </section>
 
       <section>
@@ -140,7 +140,12 @@
 
       <section>
         <h3>Durum ışıkları</h3>
-        <p>Başlıktaki <b>Yapay Zeka</b> ve <b>ERP</b> ışıkları yeşil yanıp sönüyorsa ikisi de çalışıyordur. Kırmızı ışık o parçaya ulaşılamadığını gösterir.</p>
+        <p>Başlıktaki <b>Yapay Zeka</b> ışığı ve ERP seçicisinin yanındaki ışık yeşil yanıp sönüyorsa ikisi de çalışıyordur. Kırmızı ışık o parçaya ulaşılamadığını gösterir.</p>
+      </section>
+
+      <section>
+        <h3>ERP seçimi</h3>
+        <p>Sağ üstteki seçiciden Odoo ya da ERPNext'i seçin; yeni bir sohbet açılır, önceki sohbet geçmişte ERP adıyla kalır. Kapalı ERP <b>· kapalı</b> görünür ve seçilemez; Docker Desktop'tan başlatılınca birkaç saniye içinde seçilebilir olur.</p>
       </section>
 
       <section>
