@@ -1,8 +1,22 @@
 "use strict";
 
+const LOW_STOCK = 5;
+
+// Turkish ablative after a numeral follows how it is read: 5'ten (beş), 10'dan (on), 20'den (yirmi).
+const ABLATIVE_UNITS = ["", "den", "den", "ten", "ten", "ten", "dan", "den", "den", "dan"];
+const ABLATIVE_TENS = ["", "dan", "den", "dan", "tan", "den", "tan", "ten", "den", "dan"];
+
+function ablative(n) {
+  if (n % 10) { return ABLATIVE_UNITS[n % 10]; }
+  if (n % 100) { return ABLATIVE_TENS[(n % 100) / 10]; }
+  return "den";  // yüz, bin
+}
+
+const LOW_STOCK_QUESTION = `Stokta ${LOW_STOCK}'${ablative(LOW_STOCK)} az kalan ürünler hangileri?`;
+
 const EXAMPLES = [
   ["Sorgu", [
-    "Stokta 5'ten az kalan ürünler hangileri?",
+    LOW_STOCK_QUESTION,
     "M.U.CLV.00001 kodlu ürünün fiyatı ve stoğu ne?",
     "Ege Güvenlik'in açık faturaları toplam ne kadar?",
     "Onay bekleyen teklifler hangileri?",
@@ -145,13 +159,13 @@ function introText() {
 
 const OVERVIEW_CARDS = [
   [(o) => String(o.quotations), "teklif onay bekliyor", "Onay bekleyen teklifler hangileri?"],
-  [(o) => String(o.low_stock), "ürün kritik stokta", "Stokta 5'ten az kalan ürünler hangileri?"],
+  [(o) => String(o.low_stock), "ürün kritik stokta", LOW_STOCK_QUESTION],
   [(o) => tl(o.open_total), (o) => `${o.open_invoices} açık fatura`, "Açık faturalar toplam ne kadar?"],
 ];
 
 async function fillOverview(box) {
   try {
-    const o = await api("/api/overview");
+    const o = await api(`/api/overview?low_stock=${LOW_STOCK}`);
     for (const [value, caption, question] of OVERVIEW_CARDS) {
       const card = box.appendChild(el("button", "card"));
       card.type = "button";

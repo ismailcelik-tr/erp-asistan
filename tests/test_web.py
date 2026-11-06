@@ -203,10 +203,11 @@ def test_unknown_conversation_is_404():
 def test_overview_counts_from_erp():
     client, tools = _client(tools=OverviewTools())
 
-    body = client.get("/api/overview").json()
+    body = client.get("/api/overview", params={"low_stock": 7}).json()
 
     assert body == {"quotations": 2, "low_stock": 1, "open_invoices": 3, "open_total": 1500.0}
     assert ("find_orders", {"state": "quotation"}) in tools.ran
+    assert ("get_low_stock", {"threshold": 7}) in tools.ran
 
 
 class FailingTools(FakeTools):
@@ -217,7 +218,7 @@ class FailingTools(FakeTools):
 def test_overview_reports_erp_error():
     client, _ = _client(tools=FailingTools())
 
-    assert client.get("/api/overview").status_code == 502
+    assert client.get("/api/overview", params={"low_stock": 5}).status_code == 502
 
 
 def test_health_lists_erps():
