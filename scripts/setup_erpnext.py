@@ -104,6 +104,9 @@ def _settings(http: httpx.Client) -> None:
           fieldname="language", value=UI_LANGUAGE)
     _call(http, "frappe.client.set_value", doctype="User", name="Administrator",
           fieldname="language", value=UI_LANGUAGE)
+    # The "create your first sale" checklists would give away a fresh install in demos.
+    _call(http, "frappe.client.set_value", doctype="System Settings", name="System Settings",
+          fieldname="enable_onboarding", value=0)
 
 
 def _api_key(http: httpx.Client) -> str:

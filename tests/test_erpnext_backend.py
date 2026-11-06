@@ -61,3 +61,28 @@ def test_tools_run_on_erpnext(erpnext_erp):
     result = ToolRegistry(erpnext_erp).run("confirm_order", {"order_ref": "YOK-999"})
 
     assert "bulunamadı" in result["error"]
+
+
+def _png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGBA", (40, 10), (220, 30, 40, 255)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_set_company_brands_the_ui(erpnext, erpnext_erp):
+    name = erpnext_erp.company_info()["name"]
+
+    erpnext_erp.set_company({"name": name}, _png())
+
+    logo = erpnext.get_doc("Navbar Settings", "Navbar Settings")["app_logo"]
+    site = erpnext.get_doc("Website Settings", "Website Settings")
+    assert logo.startswith("/files/")
+    assert (site["app_name"], site["app_logo"], site["splash_image"], site["favicon"]) == (f"{name} ERP", logo, logo, logo)
+    assert erpnext.get_doc("System Settings", "System Settings")["app_name"] == f"{name} ERP"
+    assert erpnext.get_doc("Company", name)["company_logo"] == logo
+    [head] = erpnext.get_list("Letter Head", ["image"], filters=[["is_default", "=", 1]])
+    assert head["image"] == logo

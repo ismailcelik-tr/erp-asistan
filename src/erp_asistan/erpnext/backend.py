@@ -2,12 +2,10 @@
 
 from urllib.parse import quote
 
-from erp_asistan.erpnext import catalog, reports, sales
+from erp_asistan.erpnext import branding, catalog, reports, sales
 from erp_asistan.erpnext.client import ErpNextClient
 
 __all__ = ["ErpNextErp"]
-
-_LOGO_NAME = "logo.png"
 
 
 class ErpNextErp:
@@ -68,12 +66,8 @@ class ErpNextErp:
 
     def set_company(self, info: dict, logo: bytes | None) -> None:
         """Name is set by setup_erpnext.py: renaming a Company in ERPNext rewrites every linked record."""
-        if not logo:
-            return
-
         [row] = self._c.get_list("Company", ["name"], limit=1)
-        url = self._c.upload(_LOGO_NAME, logo, "Company", row["name"], "company_logo")
-        self._c.set_value("Company", row["name"], {"company_logo": url})
+        branding.apply(self._c, row["name"], logo)
 
     def create_vendor(self, name: str, city: str | None = None) -> dict:
         return catalog.create_vendor(self._c, name, city)
