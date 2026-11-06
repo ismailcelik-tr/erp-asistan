@@ -2320,6 +2320,8 @@ if __name__ == "__main__":
     main()
 ```
 
+> 6 Kas: Adım 2 ve 4 demo DB'ye dokunmadan yapıldı: yeni seed ayrı `erp_seedcheck` DB'sine yüklendi (`scripts/setup_db.sh erp_seedcheck` + `ODOO_DB`/`ODOO_API_KEY` ortam değişkenleri) → beklenen özet sayıları, 4 Kas temiz sıfırlamasıyla aynı. Demo DB sıfırlaması (`reset_demo.sh`) İsmail'e bırakıldı. ERPNext demo sitesi boş kurulduğu için doğrudan `ERP_DEFAULT=erpnext uv run python scripts/seed.py` → aynı sayılar, 17 sn.
+
 - [ ] **Step 4: Odoo verisinin aynı çıktığını doğrula**
 
 ```bash

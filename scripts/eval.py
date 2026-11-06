@@ -1,6 +1,7 @@
 """Runs scenarios.yaml N times against the demo DB and writes a reliability report.
 
 Usage: uv run python scripts/eval.py [runs=3] [scenarios.yaml]
+       ERP_DEFAULT=erpnext uv run python scripts/eval.py 3
 Writes records to the demo DB (approved flows): reset it afterwards.
 """
 
@@ -16,10 +17,8 @@ import yaml
 from dotenv import load_dotenv
 
 from erp_asistan.agent import Agent, Status
-from erp_asistan.erp.company import company_info
-from erp_asistan.erp.odoo_erp import OdooErp
+from erp_asistan.backends import DEFAULT_ERP, pick
 from erp_asistan.llm import OllamaLLM
-from erp_asistan.odoo.client import OdooClient
 from erp_asistan.tools import Kind, ToolRegistry
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,8 +66,8 @@ def _check(sc: dict, calls: list[tuple[str, dict]], tools: ToolRegistry, reply: 
     return None
 
 
-def _run(sc: dict, tools: ToolRegistry, company: str) -> tuple[str | None, float]:
-    agent = Agent(OllamaLLM(), tools, company=company, erp="Odoo")
+def _run(sc: dict, tools: ToolRegistry, company: str, erp: str) -> tuple[str | None, float]:
+    agent = Agent(OllamaLLM(), tools, company=company, erp=erp)
     started = time.time()
     turn = agent.send(sc["prompt"])
     calls = []
@@ -89,13 +88,13 @@ def main() -> None:
     runs = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_RUNS
     path = ROOT / (sys.argv[2] if len(sys.argv) > 2 else "scenarios.yaml")
     scenarios = yaml.safe_load(path.read_text())
-    odoo = OdooClient.from_env()
-    tools = ToolRegistry(OdooErp(odoo, os.environ["ODOO_URL"], os.environ["ODOO_DB"]))
-    company = company_info(odoo)["name"]
+    slot = pick(os.environ.get("ERP_DEFAULT", DEFAULT_ERP))
+    tools = ToolRegistry(slot.erp)
+    company = slot.erp.company_info()["name"]
 
     rows, by_cat = [], defaultdict(lambda: [0, 0])
     for sc in scenarios:
-        results = [_run(sc, tools, company) for _ in range(runs)]
+        results = [_run(sc, tools, company, slot.label) for _ in range(runs)]
         passed = sum(1 for fail, _ in results if fail is None)
         fails = sorted({fail for fail, _ in results if fail})
         latency = statistics.mean(t for _, t in results)
@@ -107,13 +106,13 @@ def main() -> None:
     total = sum(p for p, _ in by_cat.values()), sum(n for _, n in by_cat.values())
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     report = "\n".join([
-        f"# Eval — {stamp} · {company} · {path.name} · {runs} koşu/senaryo", "",
+        f"# Eval — {stamp} · {company} · {slot.label} · {path.name} · {runs} koşu/senaryo", "",
         f"**Toplam: {total[0]}/{total[1]} ({100 * total[0] / total[1]:.0f}%)**", "",
         "| Kategori | Başarı |", "|---|---|",
         *(f"| {c} | {p}/{n} ({100 * p / n:.0f}%) |" for c, (p, n) in by_cat.items()), "",
         "| Senaryo | Kategori | Başarı | Ort. süre | Hata |", "|---|---|---|---|---|", *rows, "",
     ])
-    out = ROOT / "reports" / f"eval-{datetime.datetime.now():%Y%m%d-%H%M}.md"
+    out = ROOT / "reports" / f"eval-{slot.id}-{datetime.datetime.now():%Y%m%d-%H%M}.md"
     out.parent.mkdir(exist_ok=True)
     out.write_text(report)
     print(f"\n{total[0]}/{total[1]} → {out}")
