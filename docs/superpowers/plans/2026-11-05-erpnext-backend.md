@@ -1508,6 +1508,7 @@ Olası sapmalar ve çözümleri:
 - `Customer Group`/`Territory` zorunlu hatası: `create_partner`'daki insert'e Task 1 Adım 7'de görülen yaprak grupları ekle (`"customer_group": "Commercial", "territory": "Türkiye"` gibi), sabit olarak.
 - `Supplier Group` zorunlu: `create_vendor`'a aynı şekilde `"supplier_group"` ekle.
 - `Valuation Rate` hatası: `set_stock` satırında `allow_zero_valuation_rate`'in uygulandığını kontrol et.
+- (6 Kas, uygulandı) Ürünün ilk stok girişi "açılış girişi" sayılır; fark hesabı varlık türü olmalı: `purpose: Opening Stock` + `Temporary Opening` hesabı. Bin yoksa ilk giriştir.
 
 - [ ] **Step 6: Commit (İsmail onayıyla)**
 
