@@ -88,6 +88,7 @@ button, input { font: inherit; color: inherit; }
 .leds li { display: flex; align-items: center; gap: 6px; font: 400 14px/1 var(--display); color: var(--steel); }
 
 .erp-pick {
+  margin-left: 4px;
   padding: 4px 8px;
   border: 1px solid var(--hair);
   border-radius: 8px;
