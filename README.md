@@ -1,9 +1,11 @@
 # erp-asistan
 
-Natural-language (Turkish) assistant for Odoo 19 Community, running fully local on a laptop with Ollama (`gemma4:12b`).
+Natural-language (Turkish) assistant for Odoo 19 Community and ERPNext v16, running fully local on a laptop with Ollama (`gemma4:12b`).
 
 ```
-web UI (FastAPI + static JS) ─ agent (tool calling, human approval for writes) ─ domain tools ─ Odoo JSON-2 API
+web UI (FastAPI + static JS) ─ agent (tool calling, human approval for writes) ─ domain tools ─ ERP contract
+                                                                                          ├─ Odoo JSON-2 API
+                                                                                          └─ ERPNext REST API
 ```
 
 - The model gets a small set of domain tools (`create_quotation`, `sales_summary`, …), not raw ORM access.
@@ -11,6 +13,7 @@ web UI (FastAPI + static JS) ─ agent (tool calling, human approval for writes)
 - Totals are computed by tools, never by the model.
 - Vendor bills can be read from a photo; line sums are cross-checked before posting.
 - Turkish voice commands via local Whisper (push-to-talk).
+- Both ERPs can run side by side; the header picker switches between them and starts a new chat.
 
 Reliability: `uv run python scripts/eval.py 5` → [docs/eval-2026-11-03.md](docs/eval-2026-11-03.md) (80/80 on 16 scenarios, temperature 0).
 
@@ -26,4 +29,14 @@ uv run erp-asistan             # http://localhost:7860
 
 A dataset is a folder with `dataset.json` (company, customers, vendors, coded products, order history) and an optional logo. Company-specific datasets belong in `private/` (git-ignored).
 
-Tests need a second DB: `scripts/setup_db.sh erp_test` → `ODOO_TEST_DB` / `ODOO_TEST_API_KEY` in `.env`, then `uv run pytest`.
+ERPNext (optional, can run next to Odoo):
+
+```bash
+docker compose -f docker/erpnext/compose.yml up -d
+uv run python scripts/setup_erpnext.py test.localhost data/demo   # prints ERPNEXT_TEST_API_KEY:SECRET
+scripts/reset_erpnext.sh                                           # demo site from $SEED_DATASET + seed, rotates ERPNEXT_API_KEY
+```
+
+`ERP_DEFAULT` (`odoo` | `erpnext`) picks the ERP at startup and for `seed.py` / `eval.py`.
+
+Tests need a second DB: `scripts/setup_db.sh erp_test` → `ODOO_TEST_DB` / `ODOO_TEST_API_KEY` in `.env`, then `uv run pytest`. Tests of an ERP that is not running are skipped.
