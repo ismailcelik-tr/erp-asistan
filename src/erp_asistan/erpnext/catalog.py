@@ -169,12 +169,12 @@ def set_stock(c: ErpNextClient, product: str, quantity: float) -> None:
     if not rate:
         row["allow_zero_valuation_rate"] = 1
 
-    doc = {"doctype": "Stock Reconciliation", "purpose": "Stock Reconciliation", "items": [row], "docstatus": 1}
+    doc = {"doctype": "Stock Reconciliation", "purpose": "Stock Reconciliation", "items": [row]}
     # An item's first stock entry is an opening entry: ERPNext requires an asset-type difference account.
     if not c.get_list("Bin", ["name"], filters=[["item_code", "=", code]], limit=1):
         doc |= {"purpose": "Opening Stock", "expense_account": _account(c, _OPENING_ACCOUNT)}
 
-    c.insert(doc)
+    c.submit(doc)
 
 
 def get_low_stock(c: ErpNextClient, threshold: float) -> list[dict]:

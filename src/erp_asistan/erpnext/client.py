@@ -72,8 +72,11 @@ class ErpNextClient:
         return self.call("frappe.client.get", doctype=doctype, name=name)
 
     def insert(self, doc: dict) -> dict:
-        """docstatus=1 in doc inserts and submits in one step."""
         return self.call("frappe.client.insert", doc=doc)
+
+    def submit(self, doc: dict) -> dict:
+        """Insert as draft, then submit: inserting with docstatus=1 leaves status at "Draft"."""
+        return self.call("frappe.client.submit", doc=self.insert(doc))
 
     def set_value(self, doctype: str, name: str, vals: dict) -> dict:
         return self.call("frappe.client.set_value", doctype=doctype, name=name, fieldname=vals)

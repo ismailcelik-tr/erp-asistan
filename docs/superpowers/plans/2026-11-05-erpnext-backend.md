@@ -1867,6 +1867,8 @@ Olası sapmalar ve çözümleri:
 - `insert` `docstatus=1` ile gönderilmiyorsa (belge taslak kalıyorsa): `docstatus`'u kaldır; insert'ten sonra `c.call("frappe.client.submit", doc=inserted)` çağır.
 - `make_sales_order` "already ordered"/"expired" hatası: `valid_till`'in bugünden ileride olduğunu kontrol et.
 - Kalemsiz alış faturası satırı `expense_account` isterse: Task 1 Adım 7'deki `Cost of Goods Sold - <ABBR>` hesabını `_EXPENSE_ACCOUNT` sabiti olarak satıra ekle.
+- (6 Kas, uygulandı) `docstatus=1` ile insert belgeyi onaylıyor ama `status` "Draft" kalıyor (teklif/sipariş ERPNext arayüzünde de yanlış görünür). Çözüm: `ErpNextClient.submit(doc)` = taslak insert + `frappe.client.submit`. Tüm onaylı belgeler bununla.
+- (6 Kas, uygulandı) Kalemsiz alış faturası satırı gider hesabı istiyor: şirketin `default_expense_account`'u.
 
 - [ ] **Step 5: Commit (İsmail onayıyla)**
 
