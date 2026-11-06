@@ -41,3 +41,13 @@ def test_unknown_or_malformed_id_returns_none(tmp_path):
 
     assert h.get("20990101-000000-000000") is None
     assert h.get("../.env") is None
+
+
+def test_conversation_records_erp(tmp_path):
+    h = History(tmp_path, erp="odoo")
+    h.add({"type": "user", "text": "ilk"})
+
+    h.start(erp="erpnext")
+    h.add({"type": "user", "text": "ikinci"})
+
+    assert [(i["title"], i["erp"]) for i in h.list()] == [("ikinci", "erpnext"), ("ilk", "odoo")]

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from erp_asistan.agent import Agent, Status, ToolCall, Turn
 from erp_asistan.history import History
 from erp_asistan.invoice_reader import check, read_invoice
+from erp_asistan.session import ErpClosed, Session
 
 __all__ = ["Services", "create_app", "main"]
 
@@ -25,6 +26,7 @@ _STATIC = Path(__file__).parent / "static"
 _HTTP_UNPROCESSABLE = 422
 _HTTP_NOT_FOUND = 404
 _HTTP_BAD_GATEWAY = 502
+_HTTP_CONFLICT = 409
 _LOW_STOCK_THRESHOLD = 5
 
 _LABELS = {
@@ -53,13 +55,9 @@ _ARG_LABELS = {
 
 @dataclass
 class Services:
-    agent: Agent
-    tools: Any
+    session: Session
     extractor: Any
     transcribe: Callable[[Path], str]
-    company: dict
-    odoo_url: str
-    odoo_db: str
     history: History
     probes: dict[str, Callable[[], bool]] = field(default_factory=dict)
 
@@ -77,6 +75,10 @@ class InvoiceIn(BaseModel):
     untaxed: float
     vat: float
     total: float
+
+
+class ErpIn(BaseModel):
+    id: str
 
 
 def _line(item: dict) -> str:
@@ -140,31 +142,53 @@ def create_app(s: Services) -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"company": s.company["name"], **{k: probe() for k, probe in s.probes.items()}}
+        erps = s.session.status()
+        return {
+            "company": s.session.company_name(),
+            "erp": next(e["up"] for e in erps if e["active"]),
+            "erps": erps,
+            **{k: probe() for k, probe in s.probes.items()},
+        }
 
     @app.get("/api/logo")
     def logo() -> Response:
-        if not s.company.get("logo"):
+        try:
+            data = s.session.company().get("logo")
+        except httpx.HTTPError:
+            data = None
+        if not data:
             raise HTTPException(_HTTP_NOT_FOUND)
-        return Response(s.company["logo"], media_type="image/png")
+        return Response(data, media_type="image/png")
 
     @app.post("/api/chat")
     def chat(body: ChatIn) -> dict:
-        return step(lambda: s.agent.send(body.text), {"type": "user", "text": body.text, "voice": body.voice})
+        return step(lambda: s.session.agent.send(body.text), {"type": "user", "text": body.text, "voice": body.voice})
 
     @app.post("/api/approve")
     def approve() -> dict:
-        return step(s.agent.approve, {"type": "decision", "approved": True})
+        return step(lambda: s.session.agent.approve(), {"type": "decision", "approved": True})
 
     @app.post("/api/reject")
     def reject() -> dict:
-        return step(s.agent.reject, {"type": "decision", "approved": False})
+        return step(lambda: s.session.agent.reject(), {"type": "decision", "approved": False})
 
     @app.post("/api/reset")
     def reset() -> dict:
         with lock:
-            s.agent.reset()
+            s.session.reset()
             s.history.start()
+        return {"ok": True}
+
+    @app.post("/api/erp")
+    def switch_erp(body: ErpIn) -> dict:
+        with lock:
+            try:
+                s.session.switch(body.id)
+            except KeyError as e:
+                raise HTTPException(_HTTP_NOT_FOUND) from e
+            except ErpClosed as e:
+                raise HTTPException(_HTTP_CONFLICT, f"{e} kapalı. Docker Desktop'tan başlatın.") from e
+            s.history.start(erp=body.id)
         return {"ok": True}
 
     @app.get("/api/history")
@@ -181,9 +205,9 @@ def create_app(s: Services) -> FastAPI:
     @app.get("/api/overview")
     def overview() -> dict:
         try:
-            quotations = s.tools.run("find_orders", {"state": "quotation"})
-            low = s.tools.run("get_low_stock", {"threshold": _LOW_STOCK_THRESHOLD})
-            invoices = s.tools.run("list_open_invoices", {})
+            quotations = s.session.tools.run("find_orders", {"state": "quotation"})
+            low = s.session.tools.run("get_low_stock", {"threshold": _LOW_STOCK_THRESHOLD})
+            invoices = s.session.tools.run("list_open_invoices", {})
         except httpx.HTTPError as e:
             raise HTTPException(_HTTP_BAD_GATEWAY, f"ERP'ye ulaşılamadı: {e}") from e
 
@@ -229,13 +253,11 @@ def create_app(s: Services) -> FastAPI:
             raise HTTPException(_HTTP_UNPROCESSABLE, " ".join(warnings))
 
         args = {"vendor": inv["vendor"], "lines": inv["lines"], "date": inv["date"], "ref": inv["invoice_no"] or None}
-        result = s.tools.run("create_vendor_bill", args)
+        result = s.session.tools.run("create_vendor_bill", args)
         if "error" in result:
             raise HTTPException(_HTTP_UNPROCESSABLE, result["error"])
 
-        # ?db= is required: the server hosts more than one DB (demo + tests).
-        url = f"{s.odoo_url}/odoo/account.move/{result['id']}?db={s.odoo_db}"
-        return result | {"url": url}
+        return result | {"url": s.session.active.erp.record_url(result["id"])}
 
     @app.get("/")
     def index() -> FileResponse:
@@ -248,49 +270,33 @@ def create_app(s: Services) -> FastAPI:
 _PORT = 7860
 _HISTORY_DIR = "history"
 _OLLAMA_PS = "http://localhost:11434/api/ps"
-_PROBE_TIMEOUT_SECONDS = 2
 _WARM_UP_AUDIO = Path(__file__).resolve().parents[2] / "samples" / "audio" / "teklif-komutu.wav"
-
-
-def _reachable(url: str) -> bool:
-    try:
-        return httpx.get(url, timeout=_PROBE_TIMEOUT_SECONDS).status_code < _HTTP_UNPROCESSABLE
-    except httpx.HTTPError:
-        return False
 
 
 def main() -> None:
     import uvicorn
     from dotenv import load_dotenv
 
-    from erp_asistan.erp.company import company_info
-    from erp_asistan.erp.odoo_erp import OdooErp
+    from erp_asistan.backends import DEFAULT_ERP, load_slots, reachable
     from erp_asistan.llm import OllamaLLM
-    from erp_asistan.odoo.client import OdooClient
     from erp_asistan.speech import is_ready, transcribe, warm_up
-    from erp_asistan.tools import ToolRegistry
 
     load_dotenv(Path.cwd() / ".env")
     warm_up(_WARM_UP_AUDIO)
 
-    odoo = OdooClient.from_env()
-    company = company_info(odoo)
     llm = OllamaLLM()
-    odoo_url = os.environ["ODOO_URL"]
-    tools = ToolRegistry(OdooErp(odoo, odoo_url, os.environ["ODOO_DB"]))
-
+    session = Session(
+        load_slots(),
+        os.environ.get("ERP_DEFAULT", DEFAULT_ERP),
+        make_agent=lambda tools, company, erp: Agent(llm, tools, company=company, erp=erp),
+    )
     services = Services(
-        agent=Agent(llm, tools, company=company["name"], erp="Odoo"),
-        tools=tools,
+        session=session,
         extractor=llm,
         transcribe=transcribe,
-        company=company,
-        odoo_url=odoo_url,
-        odoo_db=os.environ["ODOO_DB"],
-        history=History(Path.cwd() / _HISTORY_DIR),
+        history=History(Path.cwd() / _HISTORY_DIR, erp=session.active.id),
         probes={
-            "model": lambda: _reachable(_OLLAMA_PS),
-            "erp": lambda: _reachable(f"{odoo_url}/web/health"),
+            "model": lambda: reachable(_OLLAMA_PS),
             "speech": is_ready,
         },
     )

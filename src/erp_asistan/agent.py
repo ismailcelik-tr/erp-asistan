@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from erp_asistan.tools import Kind
 
-__all__ = ["Agent", "Status", "ToolCall", "TraceEntry", "Turn"]
+__all__ = ["Agent", "Status", "ToolCall", "Tools", "TraceEntry", "Turn"]
 
 _MAX_STEPS = 10
 _NOTHING_PENDING = "Onay bekleyen işlem yok."

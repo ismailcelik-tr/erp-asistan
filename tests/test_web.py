@@ -1,10 +1,12 @@
 import tempfile
 from pathlib import Path
 
+import httpx
 from fastapi.testclient import TestClient
 
 from erp_asistan.agent import Agent
 from erp_asistan.history import History
+from erp_asistan.session import Session, Slot
 from erp_asistan.tools import Kind
 from erp_asistan.web import Services, create_app
 
@@ -61,20 +63,41 @@ INVOICE = {
 }
 
 
-def _client(replies=(), invoice=INVOICE, tools=None):
+class FakeErp:
+    def __init__(self, name="Netelsan", down=False):
+        self.name = name
+        self.down = down
+
+    def company_info(self):
+        if self.down:
+            raise httpx.ConnectError("kapalı")
+        return {"name": self.name, "city": None, "logo": None}
+
+    def record_url(self, record_id):
+        return f"http://odoo/odoo/account.move/{record_id}?db=erp"
+
+
+def _client(replies=(), invoice=INVOICE, tools=None, slots=None):
     tools = tools or FakeTools()
     llm = FakeLLM(replies, invoice)
+    session = Session(
+        slots or [Slot("odoo", "Odoo", FakeErp(), lambda: True)],
+        "odoo",
+        make_agent=lambda t, company, erp: Agent(llm, t, company=company, erp=erp),
+        make_tools=lambda erp: tools,
+    )
     services = Services(
-        agent=Agent(llm, tools, company="Netelsan"),
-        tools=tools,
+        session=session,
         extractor=llm,
         transcribe=lambda path: "üç adet vega şube",
-        company={"name": "Netelsan", "logo": None},
-        odoo_url="http://odoo",
-        odoo_db="erp",
-        history=History(Path(tempfile.mkdtemp())),
+        history=History(Path(tempfile.mkdtemp()), erp="odoo"),
     )
     return TestClient(create_app(services)), tools
+
+
+def _two_erps(erpnext_up=True):
+    return [Slot("odoo", "Odoo", FakeErp("Netelsan"), lambda: True),
+            Slot("erpnext", "ERPNext", FakeErp("Netelsan B"), lambda: erpnext_up)]
 
 
 def test_chat_pauses_on_write_then_approve_runs_it():
@@ -195,3 +218,56 @@ def test_overview_reports_erp_error():
     client, _ = _client(tools=FailingTools())
 
     assert client.get("/api/overview").status_code == 502
+
+
+def test_health_lists_erps():
+    client, _ = _client(slots=_two_erps(erpnext_up=False))
+
+    body = client.get("/api/health").json()
+
+    assert body["erp"] is True
+    assert body["erps"] == [
+        {"id": "odoo", "label": "Odoo", "up": True, "active": True},
+        {"id": "erpnext", "label": "ERPNext", "up": False, "active": False},
+    ]
+
+
+def test_health_survives_active_erp_down():
+    client, _ = _client(slots=[Slot("odoo", "Odoo", FakeErp(down=True), lambda: False)])
+
+    body = client.get("/api/health").json()
+
+    assert (body["company"], body["erp"]) == ("Odoo", False)
+
+
+def test_switch_starts_new_conversation_on_that_erp():
+    client, _ = _client([_text("A"), _text("B")], slots=_two_erps())
+    client.post("/api/chat", json={"text": "bir"})
+
+    assert client.post("/api/erp", json={"id": "erpnext"}).json() == {"ok": True}
+    client.post("/api/chat", json={"text": "iki"})
+
+    items = client.get("/api/history").json()["items"]
+    assert [(i["title"], i["erp"]) for i in items] == [("iki", "erpnext"), ("bir", "odoo")]
+    assert client.get("/api/health").json()["company"] == "Netelsan B"
+
+
+def test_switch_to_closed_erp_is_409():
+    client, _ = _client(slots=_two_erps(erpnext_up=False))
+
+    resp = client.post("/api/erp", json={"id": "erpnext"})
+
+    assert resp.status_code == 409
+    assert "kapalı" in resp.json()["detail"]
+
+
+def test_switch_to_unknown_erp_is_404():
+    client, _ = _client()
+
+    assert client.post("/api/erp", json={"id": "sap"}).status_code == 404
+
+
+def test_chat_while_erp_down_is_502():
+    client, _ = _client(slots=[Slot("odoo", "Odoo", FakeErp(down=True), lambda: False)])
+
+    assert client.post("/api/chat", json={"text": "selam"}).status_code == 502

@@ -16,12 +16,15 @@ def _new_id() -> str:
 
 
 class History:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, erp: str | None = None) -> None:
         self._root = root
         self._root.mkdir(parents=True, exist_ok=True)
+        self.erp = erp
         self.current = _new_id()
 
-    def start(self) -> None:
+    def start(self, erp: str | None = None) -> None:
+        if erp:
+            self.erp = erp
         self.current = _new_id()
 
     def add(self, event: dict) -> None:
@@ -29,6 +32,7 @@ class History:
             "id": self.current,
             "started": datetime.now().isoformat(timespec="seconds"),
             "title": None,
+            "erp": self.erp,
             "events": [],
         }
         if convo["title"] is None and event.get("type") == "user":
@@ -44,7 +48,7 @@ class History:
         items = []
         for path in sorted(self._root.glob("*.json"), reverse=True):
             convo = json.loads(path.read_text())
-            items.append({"id": convo["id"], "title": convo["title"], "started": convo["started"]})
+            items.append({"id": convo["id"], "title": convo["title"], "started": convo["started"], "erp": convo.get("erp")})
         return items
 
     def get(self, convo_id: str) -> dict | None:
