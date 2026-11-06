@@ -139,3 +139,21 @@ def test_prompt_names_active_erp():
     prompt = agent._messages[0]["content"]
     assert "ERPNext" in prompt
     assert "Odoo" not in prompt
+
+
+class PrimingLLM(FakeLLM):
+    def prime(self, messages, tools):
+        self.primed = (messages, tools)
+
+
+def test_prime_warms_llm_without_touching_conversation():
+    llm = PrimingLLM([])
+    agent = Agent(llm, FakeTools(), company="Netelsan", erp="Odoo")
+
+    agent.prime()
+
+    messages, tools = llm.primed
+    assert messages[0] == agent._messages[0]
+    assert [m["role"] for m in messages] == ["system", "user"]
+    assert tools == []
+    assert len(agent._messages) == 1

@@ -13,6 +13,7 @@ __all__ = ["Agent", "Status", "ToolCall", "Tools", "TraceEntry", "Turn"]
 
 _MAX_STEPS = 10
 _NOTHING_PENDING = "Onay bekleyen işlem yok."
+_PRIME_MESSAGE = "Merhaba"
 
 # gemma4:12b sometimes reports "teklif oluşturuldu" after only read tools ran.
 _SUCCESS_CLAIM = re.compile(
@@ -79,6 +80,7 @@ class Turn:
 
 class LLM(Protocol):
     def chat(self, messages: list[dict], tools: list[dict]) -> dict: ...
+    def prime(self, messages: list[dict], tools: list[dict]) -> None: ...
 
 
 class Tools(Protocol):
@@ -108,6 +110,10 @@ class Agent:
         self._queue = []
         self._wrote = False
         self._challenges = 0
+
+    def prime(self) -> None:
+        """Warms the LLM on this conversation's prefix (system prompt + tools); the conversation is untouched."""
+        self._llm.prime([self._messages[0], {"role": "user", "content": _PRIME_MESSAGE}], self._tools.schemas())
 
     def send(self, text: str, images: list[str] | None = None) -> Turn:
         msg: dict = {"role": "user", "content": text}

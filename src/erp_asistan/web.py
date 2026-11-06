@@ -16,8 +16,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from erp_asistan.agent import Agent, Status, ToolCall, Turn
+from erp_asistan.erpnext.client import ErpNextError
 from erp_asistan.history import History
 from erp_asistan.invoice_reader import check, read_invoice
+from erp_asistan.odoo.client import OdooError
 from erp_asistan.session import ErpClosed, Session
 
 __all__ = ["Services", "create_app", "main"]
@@ -27,7 +29,6 @@ _HTTP_UNPROCESSABLE = 422
 _HTTP_NOT_FOUND = 404
 _HTTP_BAD_GATEWAY = 502
 _HTTP_CONFLICT = 409
-_LOW_STOCK_THRESHOLD = 5
 
 _LABELS = {
     "find_partner": "Cari arandı",
@@ -203,10 +204,11 @@ def create_app(s: Services) -> FastAPI:
         return convo
 
     @app.get("/api/overview")
-    def overview() -> dict:
+    def overview(low_stock: float) -> dict:
+        """low_stock: threshold, owned by the UI so its texts and this count agree."""
         try:
             quotations = s.session.tools.run("find_orders", {"state": "quotation"})
-            low = s.session.tools.run("get_low_stock", {"threshold": _LOW_STOCK_THRESHOLD})
+            low = s.session.tools.run("get_low_stock", {"threshold": low_stock})
             invoices = s.session.tools.run("list_open_invoices", {})
         except httpx.HTTPError as e:
             raise HTTPException(_HTTP_BAD_GATEWAY, f"ERP'ye ulaşılamadı: {e}") from e
@@ -273,6 +275,17 @@ _OLLAMA_PS = "http://localhost:11434/api/ps"
 _WARM_UP_AUDIO = Path(__file__).resolve().parents[2] / "samples" / "audio" / "teklif-komutu.wav"
 
 
+def _prime(session: Session, llm: Any) -> None:
+    """Loads the model before the first question; without the ERP, only the model."""
+    try:
+        session.agent.prime()
+    except (httpx.HTTPError, OdooError, ErpNextError):
+        try:
+            llm.prime([], [])
+        except httpx.HTTPError:
+            return
+
+
 def main() -> None:
     import uvicorn
     from dotenv import load_dotenv
@@ -290,6 +303,7 @@ def main() -> None:
         os.environ.get("ERP_DEFAULT", DEFAULT_ERP),
         make_agent=lambda tools, company, erp: Agent(llm, tools, company=company, erp=erp),
     )
+    threading.Thread(target=_prime, args=(session, llm), daemon=True).start()
     services = Services(
         session=session,
         extractor=llm,

@@ -21,7 +21,7 @@ Temiz veride iki ERP'nin özet kartları birebir aynı olmalı; beklenen sayıla
 - ERPNext: http://localhost:8080 → `Administrator` / `admin`
 - İki pencere yan yana: solda asistan, sağda Odoo. Asistan yarım ekranda tek sütun çalışır.
 - Başlıktaki iki ışık (Yapay Zeka, ERP) yeşil yanıp sönmeli; ERP'nin sağındaki seçici aktif ERP'yi gösterir.
-- Isınma: ilk komut modeli belleğe yükler (~15 sn). Demodan önce bir sorgu çalıştırın, Yeni sohbet'e basın, sonra `rm history/*.json` (ısınma geçmişte görünmesin).
+- Isınma kendiliğinden: asistan açılırken modeli yükler ve talimatı önbelleğe alır (~10 sn, geçmişe yazmaz). İlk soru ~19 sn yerine ~8 sn. Model 60 dk boşta kalırsa boşalır; demodan hemen önce asistanı yeniden başlatın.
 - Mikrofon ve kamera izinlerini tarayıcı ilk kullanımda sorar; önceden verin.
 - Bellek: Docker Desktop 3 GB ile sınırlı; iki ERP birlikte ~1,3 GB (6 Kas ölçümü). `memory_pressure` %20'nin altındaysa gereksiz uygulamaları kapatın.
 

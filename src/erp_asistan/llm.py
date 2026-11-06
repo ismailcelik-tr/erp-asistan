@@ -14,6 +14,7 @@ _KEEP_ALIVE = "60m"
 # Default would be the model's full 262k window: minutes to load, GBs of KV cache.
 _NUM_CTX = 16384
 _TIMEOUT_SECONDS = 300
+_PRIME_TOKENS = 1
 
 
 class OllamaLLM:
@@ -39,13 +40,17 @@ class OllamaLLM:
         })
         return json.loads(msg["content"])
 
-    def _post(self, body: dict) -> dict:
+    def prime(self, messages: list[dict], tools: list[dict]) -> None:
+        """Loads the model and caches the prompt prefix; options must match chat() or Ollama reloads."""
+        self._post({"messages": messages, "tools": tools}, num_predict=_PRIME_TOKENS)
+
+    def _post(self, body: dict, **options) -> dict:
         body |= {
             "model": self._model,
             "stream": False,
             "think": self._think,
             "keep_alive": _KEEP_ALIVE,
-            "options": {"temperature": 0, "num_ctx": _NUM_CTX},
+            "options": {"temperature": 0, "num_ctx": _NUM_CTX, **options},
         }
         resp = self._http.post(_OLLAMA_URL, json=body)
         resp.raise_for_status()
