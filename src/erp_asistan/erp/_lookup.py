@@ -9,7 +9,7 @@ _SUFFIX_SLACK = 2
 _APOSTROPHES = "'’"
 
 
-def _stems(text: str) -> list[str]:
+def stems(text: str) -> list[str]:
     stems = []
     for word in text.split():
         for a in _APOSTROPHES:
@@ -39,11 +39,11 @@ def search(
     if rows:
         return rows
 
-    stems = _stems(name)
-    if not stems:
+    words = stems(name)
+    if not words:
         return []
 
-    domain = [*extra_domain, *(("name", "ilike", s) for s in stems)]
+    domain = [*extra_domain, *(("name", "ilike", s) for s in words)]
     return odoo.search_read(model, domain, fields, limit=limit)
 
 

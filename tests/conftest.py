@@ -4,6 +4,7 @@ import httpx
 import pytest
 from dotenv import load_dotenv
 
+from erp_asistan.erp.odoo_erp import OdooErp
 from erp_asistan.erpnext.client import ErpNextClient
 from erp_asistan.odoo.client import OdooClient
 
@@ -30,6 +31,11 @@ def odoo() -> OdooClient:
         db=os.environ["ODOO_TEST_DB"],
         api_key=os.environ["ODOO_TEST_API_KEY"],
     )
+
+
+@pytest.fixture(scope="session")
+def odoo_erp(odoo) -> OdooErp:
+    return OdooErp(odoo, os.environ["ODOO_URL"], os.environ["ODOO_TEST_DB"])
 
 
 @pytest.fixture(scope="session")

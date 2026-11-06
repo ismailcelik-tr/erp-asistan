@@ -5,6 +5,7 @@ Writes records to the demo DB (approved flows): reset it afterwards.
 """
 
 import datetime
+import os
 import statistics
 import sys
 import time
@@ -16,6 +17,7 @@ from dotenv import load_dotenv
 
 from erp_asistan.agent import Agent, Status
 from erp_asistan.erp.company import company_info
+from erp_asistan.erp.odoo_erp import OdooErp
 from erp_asistan.llm import OllamaLLM
 from erp_asistan.odoo.client import OdooClient
 from erp_asistan.tools import Kind, ToolRegistry
@@ -66,7 +68,7 @@ def _check(sc: dict, calls: list[tuple[str, dict]], tools: ToolRegistry, reply: 
 
 
 def _run(sc: dict, tools: ToolRegistry, company: str) -> tuple[str | None, float]:
-    agent = Agent(OllamaLLM(), tools, company=company)
+    agent = Agent(OllamaLLM(), tools, company=company, erp="Odoo")
     started = time.time()
     turn = agent.send(sc["prompt"])
     calls = []
@@ -88,7 +90,7 @@ def main() -> None:
     path = ROOT / (sys.argv[2] if len(sys.argv) > 2 else "scenarios.yaml")
     scenarios = yaml.safe_load(path.read_text())
     odoo = OdooClient.from_env()
-    tools = ToolRegistry(odoo)
+    tools = ToolRegistry(OdooErp(odoo, os.environ["ODOO_URL"], os.environ["ODOO_DB"]))
     company = company_info(odoo)["name"]
 
     rows, by_cat = [], defaultdict(lambda: [0, 0])

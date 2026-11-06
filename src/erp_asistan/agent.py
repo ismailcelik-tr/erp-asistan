@@ -34,7 +34,7 @@ _CLAIM_CHALLENGE = (
     "Gerekmiyorsa işlemin yapılmadığını açıkça söyle."
 )
 
-_SYSTEM_PROMPT = """Sen "{company}" şirketinin Odoo ERP asistanısın. Bugün {today}.
+_SYSTEM_PROMPT = """Sen "{company}" şirketinin ERP asistanısın; {erp} sistemine bağlısın. Bugün {today}.
 Kurallar:
 - Veriyi asla uydurma; her bilgi için araç çağır.
 - Kullanıcı kayıt oluşturmak/değiştirmek isterse ilgili yazma aracını MUTLAKA çağır. Onayı arayüz ister; sen ayrıca onay sorma.
@@ -94,16 +94,17 @@ def _challenge(claim: str) -> str:
 
 
 class Agent:
-    def __init__(self, llm: LLM, tools: Tools, company: str = "şirket") -> None:
+    def __init__(self, llm: LLM, tools: Tools, company: str = "şirket", erp: str = "ERP") -> None:
         self._llm = llm
         self._company = company
+        self._erp = erp
         self._tools = tools
         self._queue: list[ToolCall] = []
         self.reset()
 
     def reset(self) -> None:
         today = datetime.date.today().isoformat()
-        self._messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT.format(company=self._company, today=today)}]
+        self._messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT.format(company=self._company, erp=self._erp, today=today)}]
         self._queue = []
         self._wrote = False
         self._challenges = 0

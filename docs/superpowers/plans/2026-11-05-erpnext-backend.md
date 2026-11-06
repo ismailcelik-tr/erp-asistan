@@ -769,16 +769,18 @@ def odoo_erp(odoo) -> OdooErp:
 `tests/test_agent.py` sonuna:
 
 ```python
-def test_prompt_is_erp_neutral():
-    agent = Agent(FakeLLM([]), FakeTools(), company="Netelsan")
+def test_prompt_names_active_erp():
+    agent = Agent(FakeLLM([]), FakeTools(), company="Netelsan", erp="ERPNext")
 
-    assert "Odoo" not in agent._messages[0]["content"]
+    prompt = agent._messages[0]["content"]
+    assert "ERPNext" in prompt
+    assert "Odoo" not in prompt
 ```
 
 - [ ] **Step 2: Testlerin başarısız olduğunu gör**
 
 Run: `uv run pytest tests/test_tools.py tests/test_agent.py -v`
-Expected: FAIL — `ModuleNotFoundError: No module named 'erp_asistan.erp.odoo_erp'` (collection) ve `test_prompt_is_erp_neutral` assertion.
+Expected: FAIL — `ModuleNotFoundError: No module named 'erp_asistan.erp.odoo_erp'` (collection) ve `test_prompt_names_active_erp`: `TypeError` (`erp` parametresi yok).
 
 - [ ] **Step 3: Sözleşmeyi yaz**
 
@@ -1105,9 +1107,15 @@ def _build(erp: Erp) -> list[_Tool]:
 
 `scripts/eval.py` `main()`: `tools = ToolRegistry(odoo)` → `tools = ToolRegistry(OdooErp(odoo, os.environ["ODOO_URL"], os.environ["ODOO_DB"]))`; importlara `import os` ve `from erp_asistan.erp.odoo_erp import OdooErp`. (Task 7 ve 8 bu satırları yeniden yazar.)
 
-- [ ] **Step 8: Prompt'u ERP'den bağımsız yap**
+- [ ] **Step 8: Prompt'a aktif ERP'nin adını koy**
 
-`src/erp_asistan/agent.py:33`: `Sen "{company}" şirketinin Odoo ERP asistanısın.` → `Sen "{company}" şirketinin ERP asistanısın.`
+İki ERP'de de şirket Netelsan; "Sen kimsin?" cevabı hangi ERP'ye bağlı olduğunu söylemeli.
+
+`src/erp_asistan/agent.py:33`: `Sen "{company}" şirketinin Odoo ERP asistanısın. Bugün {today}.` → `Sen "{company}" şirketinin ERP asistanısın; {erp} sistemine bağlısın. Bugün {today}.`
+
+`Agent.__init__(self, llm, tools, company="şirket")` → `__init__(self, llm, tools, company="şirket", erp="ERP")`; `self._erp = erp`; `reset` içinde `.format(company=self._company, erp=self._erp, today=today)`.
+
+Step 7b'deki `web.main` ve `eval.py` `Agent(...)` çağrılarına `erp="Odoo"` ekle (Task 7–8 dinamik yapar).
 
 - [ ] **Step 9: Tüm testlerin geçtiğini gör (Odoo açık)**
 
@@ -2369,6 +2377,8 @@ Beklenen: Odoo ile aynı sayılar (ya da toplamda yalnız kuruş farkı). Fark v
     company = slot.erp.company_info()["name"]
 ```
 
+`_run(sc, tools, company)` → `_run(sc, tools, company, erp)`; içinde `Agent(OllamaLLM(), tools, company=company, erp=erp)`; çağrı `_run(sc, tools, company, slot.label)`.
+
 Rapor başlığı: `f"# Eval — {stamp} · {company} · {slot.label} · {path.name} · {runs} koşu/senaryo"`. Dosya adı: `f"eval-{slot.id}-{datetime.datetime.now():%Y%m%d-%H%M}.md"`. Docstring'in `Usage` satırına ekle: `ERP_DEFAULT=erpnext uv run python scripts/eval.py 3`.
 
 - [ ] **Step 8: Testleri koş**
@@ -2395,7 +2405,7 @@ git commit -m "Seed and evaluate either ERP via ERP_DEFAULT"
 
 **Interfaces:**
 - Consumes: `Slot`, `load_slots`, `reachable`, `DEFAULT_ERP` (Task 7).
-- Produces: `Session(slots, active: str, make_agent: Callable[[Tools, str], Agent], make_tools=ToolRegistry)`; `.active -> Slot`; `.tools`; `.agent` (lazy; ERP kapalıysa httpx/sürücü hatası); `.company() -> dict`; `.company_name() -> str`; `.reset()`; `.switch(slot_id)` (`KeyError`, `ErpClosed`); `.status() -> list[{"id", "label", "up", "active"}]`.
+- Produces: `Session(slots, active: str, make_agent: Callable[[Tools, str, str], Agent], make_tools=ToolRegistry)` — `make_agent(tools, company, erp_label)`; `.active -> Slot`; `.tools`; `.agent` (lazy; ERP kapalıysa httpx/sürücü hatası); `.company() -> dict`; `.company_name() -> str`; `.reset()`; `.switch(slot_id)` (`KeyError`, `ErpClosed`); `.status() -> list[{"id", "label", "up", "active"}]`.
 - Produces: `History(root, erp=None)`, `.start(erp=None)`, `.erp`; liste ve sohbet kayıtlarında `erp` alanı.
 - Produces (HTTP): `GET /api/health` → `{"company", "erp": bool, "erps": [...], "model", "speech"}`; `POST /api/erp {"id"}` → `{"ok": true}` | 404 | 409.
 
@@ -2429,7 +2439,7 @@ def _session(odoo=None, erpnext_up=True):
         [Slot("odoo", "Odoo", odoo or FakeErp("A"), lambda: True),
          Slot("erpnext", "ERPNext", FakeErp("B"), lambda: erpnext_up)],
         "odoo",
-        make_agent=lambda tools, company: built.append((tools, company)) or object(),
+        make_agent=lambda tools, company, erp: built.append((tools, company, erp)) or object(),
         make_tools=lambda erp: ("tools", erp.name),
     )
     return session, built
@@ -2442,7 +2452,7 @@ def test_agent_is_built_lazily_with_company():
     agent = session.agent
 
     assert session.agent is agent
-    assert built == [(("tools", "A"), "A")]
+    assert built == [(("tools", "A"), "A", "Odoo")]
 
 
 def test_switch_rebuilds_tools_and_agent():
@@ -2453,7 +2463,7 @@ def test_switch_rebuilds_tools_and_agent():
     session.agent
 
     assert session.active.id == "erpnext"
-    assert built[-1] == (("tools", "B"), "B")
+    assert built[-1] == (("tools", "B"), "B", "ERPNext")
 
 
 def test_switch_to_closed_erp_raises():
@@ -2559,7 +2569,7 @@ class Session:
         self,
         slots: list[Slot],
         active: str,
-        make_agent: Callable[[Tools, str], Agent],
+        make_agent: Callable[[Tools, str, str], Agent],
         make_tools: Callable[[Erp], Tools] = ToolRegistry,
     ) -> None:
         self._slots = {s.id: s for s in slots}
@@ -2576,7 +2586,7 @@ class Session:
     def agent(self) -> Agent:
         # Lazy: the system prompt needs the company name, which needs the ERP up.
         if self._agent is None:
-            self._agent = self._make_agent(self.tools, self.company()["name"])
+            self._agent = self._make_agent(self.tools, self.company()["name"], self.active.label)
         return self._agent
 
     def company(self) -> dict:
@@ -2663,7 +2673,7 @@ def _client(replies=(), invoice=INVOICE, tools=None, slots=None):
     session = Session(
         slots or [Slot("odoo", "Odoo", FakeErp(), lambda: True)],
         "odoo",
-        make_agent=lambda t, company: Agent(llm, t, company=company),
+        make_agent=lambda t, company, erp: Agent(llm, t, company=company, erp=erp),
         make_tools=lambda erp: tools,
     )
     services = Services(
@@ -2853,7 +2863,7 @@ def main() -> None:
     session = Session(
         load_slots(),
         os.environ.get("ERP_DEFAULT", DEFAULT_ERP),
-        make_agent=lambda tools, company: Agent(llm, tools, company=company),
+        make_agent=lambda tools, company, erp: Agent(llm, tools, company=company, erp=erp),
     )
     services = Services(
         session=session,

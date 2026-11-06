@@ -131,3 +131,11 @@ def test_claim_after_real_write_is_accepted():
 
     assert turn.reply == "Cari oluşturuldu."
     assert llm.calls == 2
+
+
+def test_prompt_names_active_erp():
+    agent = Agent(FakeLLM([]), FakeTools(), company="Netelsan", erp="ERPNext")
+
+    prompt = agent._messages[0]["content"]
+    assert "ERPNext" in prompt
+    assert "Odoo" not in prompt

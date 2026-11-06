@@ -5,9 +5,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from erp_asistan.erp import invoices, partners, products, reports, sales
+from erp_asistan.erp.backend import Erp
 from erp_asistan.erp.errors import ErpError
-from erp_asistan.odoo.client import OdooClient, OdooError
+from erp_asistan.erpnext.client import ErpNextError
+from erp_asistan.odoo.client import OdooError
 
 __all__ = ["Kind", "ToolRegistry"]
 
@@ -58,62 +59,51 @@ _BILL_LINES = {
 }
 
 
-def _build(odoo: OdooClient) -> list[_Tool]:
+def _build(erp: Erp) -> list[_Tool]:
     R, W = Kind.READ, Kind.WRITE
     return [
         _Tool("find_partner", "Search customers/vendors by name.",
-              {"name": _s("Full or partial name")}, ["name"], R,
-              lambda name: partners.find_partner(odoo, name)),
+              {"name": _s("Full or partial name")}, ["name"], R, erp.find_partner),
         _Tool("find_products", "Search products by name or product code (e.g. M.U.CLV.00001); returns code, category, price and stock.",
-              {"name": _s("Product name or code, full or partial")}, ["name"], R,
-              lambda name: products.find_products(odoo, name)),
+              {"name": _s("Product name or code, full or partial")}, ["name"], R, erp.find_products),
         _Tool("get_low_stock", "List products with stock below a threshold.",
-              {"threshold": _n("Stock threshold")}, ["threshold"], R,
-              lambda threshold: products.get_low_stock(odoo, threshold)),
+              {"threshold": _n("Stock threshold")}, ["threshold"], R, erp.get_low_stock),
         _Tool("list_open_invoices", "List unpaid customer invoices, optionally for one customer.",
-              {"partner": _s("Customer name (optional)")}, [], R,
-              lambda partner=None: invoices.list_open_invoices(odoo, partner)),
+              {"partner": _s("Customer name (optional)")}, [], R, erp.list_open_invoices),
         _Tool("find_orders", "List sales quotations/orders, optionally filtered by customer and state.",
               {"partner": _s("Customer name (optional)"),
                "state": {"type": "string", "enum": ["quotation", "order"],
                          "description": "quotation = not yet confirmed, order = confirmed (optional)"}},
-              [], R,
-              lambda partner=None, state=None: sales.find_orders(odoo, partner, state)),
+              [], R, erp.find_orders),
         _Tool("sales_summary", "Confirmed sales totals, top customers and top products for a date range.",
-              {"date_from": _s(_DATE), "date_to": _s(_DATE)}, ["date_from", "date_to"], R,
-              lambda date_from, date_to: reports.sales_summary(odoo, date_from, date_to)),
+              {"date_from": _s(_DATE), "date_to": _s(_DATE)}, ["date_from", "date_to"], R, erp.sales_summary),
         _Tool("compare_sales", "Compare confirmed sales of two periods; returns both summaries and the change.",
               {"first_from": _s(_DATE), "first_to": _s(_DATE), "second_from": _s(_DATE), "second_to": _s(_DATE)},
-              ["first_from", "first_to", "second_from", "second_to"], R,
-              lambda first_from, first_to, second_from, second_to: reports.compare_sales(
-                  odoo, first_from, first_to, second_from, second_to)),
+              ["first_from", "first_to", "second_from", "second_to"], R, erp.compare_sales),
         _Tool("create_partner", "Create a new customer/vendor company.",
               {"name": _s("Company name"), "city": _s("City"), "phone": _s("Phone"), "email": _s("Email")},
-              ["name"], W,
-              lambda name, city=None, phone=None, email=None: partners.create_partner(odoo, name, city, phone, email)),
+              ["name"], W, erp.create_partner),
         _Tool("update_product_price", "Change a product's sales price (TL, excluding VAT).",
               {"product": _s("Product name"), "price": _n("New price")}, ["product", "price"], W,
-              lambda product, price: products.update_product_price(odoo, product, price)),
+              erp.update_product_price),
         _Tool("create_quotation", "Create a sales quotation (draft order) for a customer.",
-              {"partner": _s("Customer name"), "lines": _SALE_LINES}, ["partner", "lines"], W,
-              lambda partner, lines: sales.create_quotation(odoo, partner, lines)),
+              {"partner": _s("Customer name"), "lines": _SALE_LINES}, ["partner", "lines"], W, erp.create_quotation),
         _Tool("confirm_order", "Confirm a quotation into a sales order.",
-              {"order_ref": _s("Quotation reference, e.g. S00012")}, ["order_ref"], W,
-              lambda order_ref: sales.confirm_order(odoo, order_ref)),
+              {"order_ref": _s(f"Quotation reference, e.g. {erp.quote_example}")}, ["order_ref"], W,
+              erp.confirm_order),
         _Tool("create_invoice", "Create and post the customer invoice of a confirmed sales order.",
-              {"order_ref": _s("Sales order reference, e.g. S00012")}, ["order_ref"], W,
-              lambda order_ref: invoices.create_invoice(odoo, order_ref)),
+              {"order_ref": _s(f"Sales order reference, e.g. {erp.order_example}")}, ["order_ref"], W,
+              erp.create_invoice),
         _Tool("create_vendor_bill", "Create a draft vendor bill. Unknown vendors are created.",
               {"vendor": _s("Vendor company name"), "lines": _BILL_LINES, "date": _s(_DATE),
                "ref": _s("Vendor invoice number (optional)")},
-              ["vendor", "lines", "date"], W,
-              lambda vendor, lines, date, ref=None: invoices.create_vendor_bill(odoo, vendor, lines, date, ref)),
+              ["vendor", "lines", "date"], W, erp.create_vendor_bill),
     ]
 
 
 class ToolRegistry:
-    def __init__(self, odoo: OdooClient) -> None:
-        self._tools = {t.name: t for t in _build(odoo)}
+    def __init__(self, erp: Erp) -> None:
+        self._tools = {t.name: t for t in _build(erp)}
 
     def schemas(self) -> list[dict]:
         return [
@@ -140,7 +130,7 @@ class ToolRegistry:
 
         try:
             return tool.fn(**args)
-        except (ErpError, OdooError) as e:
+        except (ErpError, OdooError, ErpNextError) as e:
             return {"error": str(e)}
         except (TypeError, KeyError) as e:
             return {"error": f"Geçersiz parametre: {e}"}

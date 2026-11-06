@@ -264,6 +264,7 @@ def main() -> None:
     from dotenv import load_dotenv
 
     from erp_asistan.erp.company import company_info
+    from erp_asistan.erp.odoo_erp import OdooErp
     from erp_asistan.llm import OllamaLLM
     from erp_asistan.odoo.client import OdooClient
     from erp_asistan.speech import is_ready, transcribe, warm_up
@@ -275,11 +276,11 @@ def main() -> None:
     odoo = OdooClient.from_env()
     company = company_info(odoo)
     llm = OllamaLLM()
-    tools = ToolRegistry(odoo)
     odoo_url = os.environ["ODOO_URL"]
+    tools = ToolRegistry(OdooErp(odoo, odoo_url, os.environ["ODOO_DB"]))
 
     services = Services(
-        agent=Agent(llm, tools, company=company["name"]),
+        agent=Agent(llm, tools, company=company["name"], erp="Odoo"),
         tools=tools,
         extractor=llm,
         transcribe=transcribe,
