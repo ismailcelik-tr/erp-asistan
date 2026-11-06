@@ -241,6 +241,12 @@ main { grid-column: 2; min-height: 0; }
 .card:hover { border-color: var(--black); }
 .card b { font: 700 clamp(20px, 2.6vw, 28px)/1.1 var(--display); white-space: nowrap; }
 .card span { color: var(--steel); font-size: 14px; }
+/* A number changed in the ERP: the card glows green, then settles. */
+.card.changed { animation: changed 2.4s ease-out; }
+@keyframes changed {
+  0%, 30% { border-color: var(--led-ok); box-shadow: 0 0 0 3px rgb(23 163 86 / .25); }
+  100% { border-color: var(--hair); box-shadow: none; }
+}
 
 .examples { margin-top: 8px; }
 

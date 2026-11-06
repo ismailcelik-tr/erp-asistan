@@ -36,6 +36,7 @@ const EXAMPLES = [
 ];
 
 const HEALTH_INTERVAL_MS = 10000;
+const OVERVIEW_INTERVAL_MS = 10000;
 const CHECK_DEBOUNCE_MS = 300;
 const MIN_RECORDING_MS = 400;
 const TRACE_ARGS_MAX = 70;
@@ -163,19 +164,48 @@ const OVERVIEW_CARDS = [
   [(o) => tl(o.open_total), (o) => `${o.open_invoices} açık fatura`, "Açık faturalar toplam ne kadar?"],
 ];
 
+const fetchOverview = () => api(`/api/overview?low_stock=${LOW_STOCK}`);
+const captionOf = (caption, o) => (typeof caption === "function" ? caption(o) : caption);
+
 async function fillOverview(box) {
   try {
-    const o = await api(`/api/overview?low_stock=${LOW_STOCK}`);
+    const o = await fetchOverview();
     for (const [value, caption, question] of OVERVIEW_CARDS) {
       const card = box.appendChild(el("button", "card"));
       card.type = "button";
       card.title = question;
-      card.append(el("b", null, value(o)), el("span", null, typeof caption === "function" ? caption(o) : caption));
+      card.append(el("b", null, value(o)), el("span", null, captionOf(caption, o)));
       card.addEventListener("click", () => draft(question));
     }
   } catch {
     box.remove();
   }
+}
+
+// Start screen only: the cards follow changes made directly in the ERP.
+async function refreshOverview() {
+  if (busy || !document.querySelector("#empty .overview .card")) { return; }
+  let o;
+  try {
+    o = await fetchOverview();
+  } catch {
+    return;
+  }
+
+  const cards = document.querySelectorAll("#empty .overview .card");
+  OVERVIEW_CARDS.forEach(([value, caption], i) => {
+    const card = cards[i];
+    if (!card) { return; }
+    const [b, span] = card.children;
+    const next = [value(o), captionOf(caption, o)];
+    if (b.textContent === next[0] && span.textContent === next[1]) { return; }
+
+    b.textContent = next[0];
+    span.textContent = next[1];
+    card.classList.remove("changed");
+    void card.offsetWidth;  // restart the animation
+    card.classList.add("changed");
+  });
 }
 
 function renderExamples() {
@@ -966,4 +996,5 @@ initTalk();
 initInvoice();
 refreshHealth();
 setInterval(refreshHealth, HEALTH_INTERVAL_MS);
+setInterval(refreshOverview, OVERVIEW_INTERVAL_MS);
 $("input").focus();

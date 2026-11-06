@@ -30,6 +30,7 @@ Temiz veride iki ERP'nin özet kartları birebir aynı olmalı; beklenen sayıla
 - **Konuş**: basın, konuşun, tekrar basın. Ya da metin kutusu dışında Boşluk tuşunu basılı tutun. Esc iptal eder.
 - Her araç çağrısı bir LED satırı: yeşil tamamlandı, amber onay bekliyor, kırmızı vazgeçildi veya denetim uyarısı. Satıra tıklayınca parametre ve sonuç görünür.
 - Boş ekranda tanıtım, ERP özeti ve örnek komutlar. Tıklanan komut yazma alanına gelir; Gönder ile çalışır.
+- Özet kartları başlangıç ekranı açıkken 10 sn'de bir yenilenir; değişen kart yeşil yanar. Gösterim: ERP ekranında elle bir kayıt değiştirin, kart birkaç saniyede güncellenir.
 - Sol panel: Yeni sohbet, Fatura oku, geçmiş sohbetler (salt okunur) ve Yardım. ☰ ile kapanır; dar ekranda çekmece olur.
 - **Fatura oku**: görseli bırakın, yapıştırın veya kamerayla çekin. Toplamlar ya da tarih tutmazsa "ERP'ye işle" kilitli kalır.
 - **ERP seçici** (sağ üst): Odoo / ERPNext. Seçim yeni sohbet açar; eski sohbet geçmişte ERP adıyla kalır. Kapalı ERP "· kapalı" görünür, seçilemez; açılınca ~10 sn içinde seçilebilir olur. Aynı anda tek canlı sohbet: iki sekmede iki ERP kullanmayın.
