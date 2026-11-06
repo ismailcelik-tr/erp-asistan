@@ -5,6 +5,7 @@ import pytest
 from dotenv import load_dotenv
 
 from erp_asistan.erp.odoo_erp import OdooErp
+from erp_asistan.erpnext.backend import ErpNextErp
 from erp_asistan.erpnext.client import ErpNextClient
 from erp_asistan.odoo.client import OdooClient
 
@@ -47,6 +48,11 @@ def erpnext() -> ErpNextClient:
         url, os.environ["ERPNEXT_TEST_SITE"],
         os.environ["ERPNEXT_TEST_API_KEY"], os.environ["ERPNEXT_TEST_API_SECRET"],
     )
+
+
+@pytest.fixture(scope="session")
+def erpnext_erp(erpnext) -> ErpNextErp:
+    return ErpNextErp(erpnext)
 
 
 @pytest.fixture
