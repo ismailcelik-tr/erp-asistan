@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Odoo ortamı (`docker-compose.yml`, `erp-asistan-db-1`, `erp-asistan-odoo-1`, volume'lar) değişmez. ERPNext ayrı compose projesi: `erp-asistan-erpnext`, port `8080`.
-- Aynı anda yalnız bir ERP açık olur (16 GB RAM, Docker Desktop 3 GB). Açma/kapama Docker Desktop'tan İsmail tarafından yapılır; uygulama Docker'ı yönetmez.
+- İki ERP aynı anda açık olabilir: 6 Kas ölçümü Odoo ~260 MB + ERPNext ~850 MB, Docker sınırı 2,84 GB. Açma/kapama Docker Desktop'tan İsmail tarafından yapılır; uygulama Docker'ı yönetmez.
 - Kapalı ERP seçicide `· kapalı` etiketiyle, seçilemez görünür. Açılınca 10 sn içinde seçilebilir olur.
 - ERP değişince sohbet sıfırlanır (eski sohbet geçmişte kalır).
 - ERPNext'e Netelsan veri setinin aynısı (`SEED_DATASET`) yüklenir. Özet kartları Odoo ile aynı ya da kuruş farkıyla aynı çıkmalı.
@@ -20,7 +20,7 @@
 - Sihirli sayı/string yok: anlamlı değerler sabit. Erken dönüş. JS'te tek satırlık `if` için de `{}`.
 - Her davranış için önce başarısız test, sonra kod (TDD).
 - **Commit adımları yalnız İsmail'in onayıyla çalışır** (bu oturumun kuralı).
-- Odoo testleri Odoo açıkken, ERPNext testleri ERPNext açıkken koşar; kapalı olanın testleri `skip` olur.
+- Her ERP'nin testleri o ERP açıkken koşar; kapalı olanın testleri `skip` olur.
 
 ## Dosya Yapısı
 
